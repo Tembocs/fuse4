@@ -1,0 +1,116 @@
+/// Synchronization module: mutex, condition variable, and shared state.
+/// This module depends on core and the runtime bridge.
+
+/// Mutex provides mutual exclusion.
+pub struct Mutex {
+    handle: Ptr[U8],
+}
+
+impl Mutex {
+    /// Create a new unlocked mutex.
+    pub fn new() -> Mutex {
+        unsafe {
+            extern fn fuse_rt_mutex_create() -> Ptr[U8];
+            Mutex { handle: fuse_rt_mutex_create() }
+        }
+    }
+
+    /// Acquire the lock. Blocks until available.
+    pub fn lock(mutref self) {
+        unsafe {
+            extern fn fuse_rt_mutex_lock(m: Ptr[U8]);
+            fuse_rt_mutex_lock(self.handle);
+        }
+    }
+
+    /// Release the lock.
+    pub fn unlock(mutref self) {
+        unsafe {
+            extern fn fuse_rt_mutex_unlock(m: Ptr[U8]);
+            fuse_rt_mutex_unlock(self.handle);
+        }
+    }
+}
+
+impl Drop : Mutex {
+    fn drop(mutref self) {
+        unsafe {
+            extern fn fuse_rt_mutex_destroy(m: Ptr[U8]);
+            fuse_rt_mutex_destroy(self.handle);
+        }
+    }
+}
+
+/// Cond is a condition variable for thread signaling.
+pub struct Cond {
+    handle: Ptr[U8],
+}
+
+impl Cond {
+    /// Create a new condition variable.
+    pub fn new() -> Cond {
+        unsafe {
+            extern fn fuse_rt_cond_create() -> Ptr[U8];
+            Cond { handle: fuse_rt_cond_create() }
+        }
+    }
+
+    /// Wait on the condition variable, releasing the mutex.
+    pub fn wait(mutref self, m: mutref Mutex) {
+        unsafe {
+            extern fn fuse_rt_cond_wait(c: Ptr[U8], m: Ptr[U8]);
+            fuse_rt_cond_wait(self.handle, m.handle);
+        }
+    }
+
+    /// Wake one waiting thread.
+    pub fn signal(mutref self) {
+        unsafe {
+            extern fn fuse_rt_cond_signal(c: Ptr[U8]);
+            fuse_rt_cond_signal(self.handle);
+        }
+    }
+
+    /// Wake all waiting threads.
+    pub fn broadcast(mutref self) {
+        unsafe {
+            extern fn fuse_rt_cond_broadcast(c: Ptr[U8]);
+            fuse_rt_cond_broadcast(self.handle);
+        }
+    }
+}
+
+impl Drop : Cond {
+    fn drop(mutref self) {
+        unsafe {
+            extern fn fuse_rt_cond_destroy(c: Ptr[U8]);
+            fuse_rt_cond_destroy(self.handle);
+        }
+    }
+}
+
+/// Shared[T] wraps a value with mutex-based synchronization.
+/// Access requires explicit lock/unlock.
+pub struct Shared[T] {
+    value: T,
+    mutex: Mutex,
+}
+
+impl Shared {
+    /// Create a new shared value.
+    pub fn new(value: T) -> Shared {
+        Shared { value: value, mutex: Mutex.new() }
+    }
+
+    /// Lock and return a mutable reference to the inner value.
+    /// The caller must call unlock() when done.
+    pub fn lock(mutref self) -> mutref T {
+        self.mutex.lock();
+        mutref self.value
+    }
+
+    /// Unlock the shared value.
+    pub fn unlock(mutref self) {
+        self.mutex.unlock();
+    }
+}

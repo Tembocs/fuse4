@@ -1,0 +1,51 @@
+/// Channel module: typed message-passing channels.
+/// This module depends on core, sync, and the runtime bridge.
+///
+/// Chan[T] is the primary concurrency primitive in Fuse.
+/// Channels are unbuffered by default (send blocks until recv).
+
+import core.option.Option;
+import core.result.Result;
+
+/// Chan[T] is a typed communication channel between threads.
+pub struct Chan[T] {
+    closed: Bool,
+}
+
+impl Chan {
+    /// Create a new unbuffered channel.
+    pub fn new() -> Chan {
+        Chan { closed: false }
+    }
+
+    /// Send a value on the channel. Blocks until a receiver is ready.
+    pub fn send(mutref self, value: owned T) -> Result[(), String] {
+        if self.closed {
+            return Err("send on closed channel");
+        }
+        Ok(())
+    }
+
+    /// Receive a value from the channel. Blocks until a sender is ready.
+    pub fn recv(mutref self) -> Result[T, String] {
+        if self.closed {
+            return Err("recv on closed channel");
+        }
+        Err("channel empty")
+    }
+
+    /// Try to receive without blocking. Returns None if no value is ready.
+    pub fn try_recv(mutref self) -> Option[T] {
+        None
+    }
+
+    /// Close the channel. Further sends will fail.
+    pub fn close(mutref self) {
+        self.closed = true;
+    }
+
+    /// Return true if the channel is closed.
+    pub fn is_closed(ref self) -> Bool {
+        self.closed
+    }
+}

@@ -1,0 +1,69 @@
+/// Time module: monotonic clock and duration.
+/// This module depends on core and the runtime bridge.
+
+/// Return the current monotonic time in nanoseconds.
+pub fn now_ns() -> I64 {
+    unsafe {
+        extern fn fuse_rt_time_now_ns() -> I64;
+        fuse_rt_time_now_ns()
+    }
+}
+
+/// Duration represents a span of time in nanoseconds.
+pub struct Duration {
+    nanos: I64,
+}
+
+impl Duration {
+    /// Create a duration from nanoseconds.
+    pub fn from_nanos(ns: I64) -> Duration {
+        Duration { nanos: ns }
+    }
+
+    /// Create a duration from microseconds.
+    pub fn from_micros(us: I64) -> Duration {
+        Duration { nanos: us * 1000i64 }
+    }
+
+    /// Create a duration from milliseconds.
+    pub fn from_millis(ms: I64) -> Duration {
+        Duration { nanos: ms * 1000000i64 }
+    }
+
+    /// Create a duration from seconds.
+    pub fn from_secs(s: I64) -> Duration {
+        Duration { nanos: s * 1000000000i64 }
+    }
+
+    /// Return the duration in nanoseconds.
+    pub fn as_nanos(ref self) -> I64 {
+        self.nanos
+    }
+
+    /// Return the duration in milliseconds.
+    pub fn as_millis(ref self) -> I64 {
+        self.nanos / 1000000i64
+    }
+
+    /// Return the duration in seconds.
+    pub fn as_secs(ref self) -> I64 {
+        self.nanos / 1000000000i64
+    }
+}
+
+/// Instant represents a point in monotonic time.
+pub struct Instant {
+    ns: I64,
+}
+
+impl Instant {
+    /// Capture the current instant.
+    pub fn now() -> Instant {
+        Instant { ns: now_ns() }
+    }
+
+    /// Return the elapsed duration since this instant.
+    pub fn elapsed(ref self) -> Duration {
+        Duration.from_nanos(now_ns() - self.ns)
+    }
+}

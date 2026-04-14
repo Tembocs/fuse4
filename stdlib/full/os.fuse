@@ -1,0 +1,45 @@
+/// OS module: environment, process arguments, and process control.
+/// This module depends on core and the runtime bridge.
+
+import core.string.String;
+import core.option.Option;
+
+/// Return the number of command-line arguments.
+pub fn argc() -> I32 {
+    unsafe {
+        extern fn fuse_rt_proc_argc() -> I32;
+        fuse_rt_proc_argc()
+    }
+}
+
+/// Return the command-line argument at `index`, or None.
+pub fn argv(index: I32) -> Option[String] {
+    unsafe {
+        extern fn fuse_rt_proc_argv(index: I32) -> Ptr[U8];
+        let ptr = fuse_rt_proc_argv(index);
+        if ptr == Ptr.null() {
+            return None;
+        }
+        Some(String.from_ptr(ptr))
+    }
+}
+
+/// Get the value of an environment variable, or None.
+pub fn env_get(name: ref String) -> Option[String] {
+    unsafe {
+        extern fn fuse_rt_proc_env_get(name: Ptr[U8]) -> Ptr[U8];
+        let ptr = fuse_rt_proc_env_get(name.as_bytes().data);
+        if ptr == Ptr.null() {
+            return None;
+        }
+        Some(String.from_ptr(ptr))
+    }
+}
+
+/// Exit the process with the given code. Does not return.
+pub fn exit(code: I32) {
+    unsafe {
+        extern fn fuse_rt_proc_exit(code: I32);
+        fuse_rt_proc_exit(code);
+    }
+}

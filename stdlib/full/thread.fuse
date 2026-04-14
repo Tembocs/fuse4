@@ -1,0 +1,17 @@
+/// Thread module: thread spawning and handles.
+/// This module depends on core and the runtime bridge.
+
+import core.result.Result;
+
+/// Spawn a new thread running the given function.
+/// The function takes ownership of its closure environment.
+pub fn spawn(f: owned fn()) -> Result[(), String] {
+    unsafe {
+        extern fn fuse_rt_thread_spawn(f: Ptr[U8], arg: Ptr[U8]) -> I32;
+        let err = fuse_rt_thread_spawn(f, Ptr.null());
+        if err != 0i32 {
+            return Err("failed to spawn thread");
+        }
+        Ok(())
+    }
+}

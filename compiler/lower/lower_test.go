@@ -406,6 +406,405 @@ func TestMIRBuilderSealedBlockIgnoresInstructions(t *testing.T) {
 	}
 }
 
+// ===== Pattern matching dispatch =====
+
+func TestMatchLiteralPatterns(t *testing.T) {
+	b, tt := makeBuilder()
+	subject := b.Literal(zs, "1", tt.I32)
+	arms := []hir.MatchArm{
+		{
+			Pattern: &hir.LiteralPattern{Value: "1", Type: tt.I32},
+			Body:    b.Literal(zs, "10", tt.I32),
+		},
+		{
+			Pattern: &hir.LiteralPattern{Value: "2", Type: tt.I32},
+			Body:    b.Literal(zs, "20", tt.I32),
+		},
+		{
+			Pattern: &hir.WildcardPattern{},
+			Body:    b.Literal(zs, "0", tt.I32),
+		},
+	}
+	matchExpr := b.Match(zs, subject, arms, tt.I32)
+	block := b.BlockExpr(zs, nil, matchExpr, tt.I32)
+	fn := &hir.Function{Name: "test", Body: block, ReturnType: tt.I32}
+
+	mf := lowerFn(t, fn, tt)
+
+	// Literal patterns should produce TermBranch (conditional dispatch).
+	branchCount := 0
+	for _, blk := range mf.Blocks {
+		if blk.Term.Kind == mir.TermBranch {
+			branchCount++
+		}
+	}
+	if branchCount < 2 {
+		t.Errorf("expected >= 2 branch terminators for literal patterns, got %d", branchCount)
+	}
+
+	// Should have == comparison binops.
+	eqCount := 0
+	for _, blk := range mf.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrBinOp && instr.Op == "==" {
+				eqCount++
+			}
+		}
+	}
+	if eqCount < 2 {
+		t.Errorf("expected >= 2 equality comparisons for literal patterns, got %d", eqCount)
+	}
+}
+
+func TestMatchWildcardPattern(t *testing.T) {
+	b, tt := makeBuilder()
+	subject := b.Literal(zs, "42", tt.I32)
+	arms := []hir.MatchArm{
+		{
+			Pattern: &hir.WildcardPattern{},
+			Body:    b.Literal(zs, "99", tt.I32),
+		},
+	}
+	matchExpr := b.Match(zs, subject, arms, tt.I32)
+	block := b.BlockExpr(zs, nil, matchExpr, tt.I32)
+	fn := &hir.Function{Name: "test", Body: block, ReturnType: tt.I32}
+
+	mf := lowerFn(t, fn, tt)
+
+	// Wildcard should produce an unconditional goto, no branches.
+	for _, blk := range mf.Blocks {
+		if blk.Term.Kind == mir.TermBranch {
+			t.Error("wildcard pattern should not produce a branch terminator")
+		}
+	}
+}
+
+func TestMatchBindPattern(t *testing.T) {
+	b, tt := makeBuilder()
+	subject := b.Literal(zs, "42", tt.I32)
+	arms := []hir.MatchArm{
+		{
+			Pattern: &hir.BindPattern{Name: "x", Type: tt.I32},
+			Body:    b.Ident(zs, "x", tt.I32),
+		},
+	}
+	matchExpr := b.Match(zs, subject, arms, tt.I32)
+	block := b.BlockExpr(zs, nil, matchExpr, tt.I32)
+	fn := &hir.Function{Name: "test", Body: block, ReturnType: tt.I32}
+
+	mf := lowerFn(t, fn, tt)
+
+	// Bind pattern should create a named local "x" and copy the subject into it.
+	foundLocal := false
+	for _, local := range mf.Locals {
+		if local.Name == "x" {
+			foundLocal = true
+		}
+	}
+	if !foundLocal {
+		t.Error("bind pattern should create a named local 'x'")
+	}
+
+	// Should have a copy instruction for the binding.
+	foundCopy := false
+	for _, blk := range mf.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrCopy {
+				for _, local := range mf.Locals {
+					if local.Id == instr.Dest && local.Name == "x" {
+						foundCopy = true
+					}
+				}
+			}
+		}
+	}
+	if !foundCopy {
+		t.Error("bind pattern should emit a copy of the subject into 'x'")
+	}
+}
+
+func TestMatchConstructorPattern(t *testing.T) {
+	b, tt := makeBuilder()
+	enumTy := tt.InternStruct("m", "Color", nil)
+	subject := b.Ident(zs, "c", enumTy)
+	arms := []hir.MatchArm{
+		{
+			Pattern: &hir.ConstructorPattern{
+				Name: "Red",
+				Tag:  0,
+				Args: []hir.Pattern{
+					&hir.BindPattern{Name: "r", Type: tt.I32},
+				},
+				Type: enumTy,
+			},
+			Body: b.Ident(zs, "r", tt.I32),
+		},
+		{
+			Pattern: &hir.WildcardPattern{},
+			Body:    b.Literal(zs, "0", tt.I32),
+		},
+	}
+	matchExpr := b.Match(zs, subject, arms, tt.I32)
+	block := b.BlockExpr(zs, nil, matchExpr, tt.I32)
+	fn := &hir.Function{
+		Name: "test", Body: block, ReturnType: tt.I32,
+		Params: []hir.Param{{Span: zs, Name: "c", Type: enumTy}},
+	}
+
+	mf := lowerFn(t, fn, tt)
+
+	// Constructor pattern should read _tag field.
+	foundTagRead := false
+	for _, blk := range mf.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrFieldRead && instr.Field == "_tag" {
+				foundTagRead = true
+			}
+		}
+	}
+	if !foundTagRead {
+		t.Error("constructor pattern should emit a _tag field read")
+	}
+
+	// Should branch on the tag comparison.
+	foundBranch := false
+	for _, blk := range mf.Blocks {
+		if blk.Term.Kind == mir.TermBranch {
+			foundBranch = true
+		}
+	}
+	if !foundBranch {
+		t.Error("constructor pattern should emit a branch terminator")
+	}
+
+	// Should create a named local "r" from field read _f0.
+	foundFieldBind := false
+	for _, blk := range mf.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrFieldRead && instr.Field == "_f0" {
+				foundFieldBind = true
+			}
+		}
+	}
+	if !foundFieldBind {
+		t.Error("constructor pattern should emit _f0 field read for bound arg")
+	}
+}
+
+func TestQuestionLowersToBranch(t *testing.T) {
+	b, tt := makeBuilder()
+	// Create a Result[I32, Bool] enum type.
+	resultTy := tt.InternEnum("std", "Result", []typetable.TypeId{tt.I32, tt.Bool})
+	// Build: expr? where expr is an identifier of type Result[I32, Bool].
+	expr := b.Ident(zs, "r", resultTy)
+	question := b.Question(zs, expr, tt.I32)
+	block := b.BlockExpr(zs, nil, question, tt.I32)
+	fn := &hir.Function{
+		Name: "test", Body: block, ReturnType: tt.I32,
+		Params: []hir.Param{{Span: zs, Name: "r", Type: resultTy}},
+	}
+
+	mf := lowerFn(t, fn, tt)
+
+	// Should have a branch terminator (for the tag check).
+	foundBranch := false
+	for _, blk := range mf.Blocks {
+		if blk.Term.Kind == mir.TermBranch {
+			foundBranch = true
+		}
+	}
+	if !foundBranch {
+		t.Error("? operator should produce a branch terminator")
+	}
+
+	// Should read the _tag field.
+	foundTagRead := false
+	for _, blk := range mf.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrFieldRead && instr.Field == "_tag" {
+				foundTagRead = true
+			}
+		}
+	}
+	if !foundTagRead {
+		t.Error("? operator should emit a _tag field read")
+	}
+
+	// Should read the _f0 field (extracting the Ok value).
+	foundF0Read := false
+	for _, blk := range mf.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrFieldRead && instr.Field == "_f0" {
+				foundF0Read = true
+			}
+		}
+	}
+	if !foundF0Read {
+		t.Error("? operator should emit a _f0 field read to extract the inner value")
+	}
+
+	// Failure path should have a TermReturn (early return with error).
+	foundReturn := false
+	for _, blk := range mf.Blocks {
+		if blk.Term.Kind == mir.TermReturn {
+			foundReturn = true
+		}
+	}
+	if !foundReturn {
+		t.Error("? operator failure path should produce a return terminator")
+	}
+}
+
+// ===== Spawn lowering =====
+
+func TestSpawnLowersToRuntimeCall(t *testing.T) {
+	b, tt := makeBuilder()
+	// spawn someFunc()
+	fn := b.Ident(zs, "someFunc", tt.InternFunc(nil, tt.Unit))
+	spawn := b.Spawn(zs, fn)
+	block := b.BlockExpr(zs, nil, spawn, tt.Unit)
+	hirFn := &hir.Function{Name: "test", Body: block, ReturnType: tt.Unit}
+
+	mf := lowerFn(t, hirFn, tt)
+
+	// The MIR should contain a const instruction with value "fuse_rt_thread_spawn"
+	// and a call instruction using it as the callee.
+	foundSpawnConst := false
+	foundCall := false
+	for _, blk := range mf.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrConst && instr.Value == "fuse_rt_thread_spawn" {
+				foundSpawnConst = true
+			}
+			if instr.Kind == mir.InstrCall && len(instr.Args) == 2 {
+				foundCall = true
+			}
+		}
+	}
+	if !foundSpawnConst {
+		t.Error("spawn should emit a const for fuse_rt_thread_spawn")
+	}
+	if !foundCall {
+		t.Error("spawn should emit a call with 2 args (fn, null)")
+	}
+}
+
+// ===== Closure lowering =====
+
+func TestClosureLoweringProducesLiftedFunction(t *testing.T) {
+	b, tt := makeBuilder()
+	// Closure: |x: I32| -> I32 { x }
+	closureBody := b.BlockExpr(zs, nil, b.Ident(zs, "x", tt.I32), tt.I32)
+	closure := b.Closure(zs, []hir.Param{
+		{Span: zs, Name: "x", Type: tt.I32},
+	}, tt.I32, closureBody, tt.InternFunc([]typetable.TypeId{tt.I32}, tt.I32))
+	block := b.BlockExpr(zs, nil, closure, tt.InternFunc([]typetable.TypeId{tt.I32}, tt.I32))
+	fn := &hir.Function{Name: "test", Body: block, ReturnType: tt.InternFunc([]typetable.TypeId{tt.I32}, tt.I32)}
+
+	l := New(tt)
+	l.LowerFunction(fn)
+
+	if len(l.LiftedFunctions) != 1 {
+		t.Fatalf("expected 1 lifted function, got %d", len(l.LiftedFunctions))
+	}
+	lifted := l.LiftedFunctions[0]
+	if lifted.Name != "__closure_0" {
+		t.Errorf("lifted function name: %q, want __closure_0", lifted.Name)
+	}
+}
+
+func TestClosureCapturesOuterVariable(t *testing.T) {
+	b, tt := makeBuilder()
+	// fn test() {
+	//   let y = 10;
+	//   let f = |x: I32| -> I32 { x + y };  // captures y
+	// }
+	closureBody := b.BlockExpr(zs, nil,
+		b.Binary(zs, "+", b.Ident(zs, "x", tt.I32), b.Ident(zs, "y", tt.I32), tt.I32),
+		tt.I32,
+	)
+	fnTy := tt.InternFunc([]typetable.TypeId{tt.I32}, tt.I32)
+	closure := b.Closure(zs, []hir.Param{
+		{Span: zs, Name: "x", Type: tt.I32},
+	}, tt.I32, closureBody, fnTy)
+
+	letY := b.Let(zs, "y", tt.I32, b.Literal(zs, "10", tt.I32))
+	block := b.BlockExpr(zs, []hir.Stmt{letY}, closure, fnTy)
+	fn := &hir.Function{Name: "test", Body: block, ReturnType: fnTy}
+
+	l := New(tt)
+	mf := l.LowerFunction(fn)
+
+	if len(l.LiftedFunctions) != 1 {
+		t.Fatalf("expected 1 lifted function, got %d", len(l.LiftedFunctions))
+	}
+
+	// The outer function should contain an InstrStructInit for the env.
+	foundEnvInit := false
+	for _, blk := range mf.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrStructInit && instr.Field == "env_0" {
+				foundEnvInit = true
+				if len(instr.Args) != 1 {
+					t.Errorf("env struct init should have 1 captured field, got %d", len(instr.Args))
+				}
+			}
+		}
+	}
+	if !foundEnvInit {
+		t.Error("closure with captures should emit InstrStructInit for env")
+	}
+
+	// The lifted function should have a field read for the captured var.
+	lifted := l.LiftedFunctions[0]
+	foundCapRead := false
+	for _, blk := range lifted.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrFieldRead && instr.Field == "_c0" {
+				foundCapRead = true
+			}
+		}
+	}
+	if !foundCapRead {
+		t.Error("lifted function should read captured variable from env via _c0 field")
+	}
+}
+
+func TestClosureWithNoCaptures(t *testing.T) {
+	b, tt := makeBuilder()
+	// Closure: |x: I32| -> I32 { x }  — no outer variables referenced
+	closureBody := b.BlockExpr(zs, nil, b.Ident(zs, "x", tt.I32), tt.I32)
+	fnTy := tt.InternFunc([]typetable.TypeId{tt.I32}, tt.I32)
+	closure := b.Closure(zs, []hir.Param{
+		{Span: zs, Name: "x", Type: tt.I32},
+	}, tt.I32, closureBody, fnTy)
+	block := b.BlockExpr(zs, nil, closure, fnTy)
+	fn := &hir.Function{Name: "test", Body: block, ReturnType: fnTy}
+
+	l := New(tt)
+	mf := l.LowerFunction(fn)
+
+	if len(l.LiftedFunctions) != 1 {
+		t.Fatalf("expected 1 lifted function, got %d", len(l.LiftedFunctions))
+	}
+
+	// The env struct init should have zero captured fields.
+	foundEnvInit := false
+	for _, blk := range mf.Blocks {
+		for _, instr := range blk.Instrs {
+			if instr.Kind == mir.InstrStructInit && instr.Field == "env_0" {
+				foundEnvInit = true
+				if len(instr.Args) != 0 {
+					t.Errorf("env struct init for no-capture closure should have 0 fields, got %d", len(instr.Args))
+				}
+			}
+		}
+	}
+	if !foundEnvInit {
+		t.Error("closure should emit InstrStructInit for env even with no captures")
+	}
+}
+
 func TestNilBodyDoesNotPanic(t *testing.T) {
 	tt := typetable.New()
 	fn := &hir.Function{Name: "test", Body: nil, ReturnType: tt.Unit}

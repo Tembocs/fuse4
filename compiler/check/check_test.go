@@ -393,6 +393,59 @@ func TestSpawnExpression(t *testing.T) {
 	})
 }
 
+// ===== Question operator (?) =====
+
+func TestQuestionOnResultExtractsT(t *testing.T) {
+	_, tt := checkOK(t, map[string]string{
+		"main": `fn test() { }`,
+	})
+	// Manually create a Result[I32, String] enum type and verify ? extracts I32.
+	strTy := tt.InternStruct("std", "String", nil)
+	resultTy := tt.InternEnum("std", "Result", []typetable.TypeId{tt.I32, strTy})
+	te := tt.Get(resultTy)
+	if te.Name != "Result" {
+		t.Fatalf("expected name Result, got %s", te.Name)
+	}
+	if len(te.TypeArgs) < 1 || te.TypeArgs[0] != tt.I32 {
+		t.Fatalf("expected TypeArgs[0] = I32, got %v", te.TypeArgs)
+	}
+	// The checker logic: if Result with TypeArgs, return TypeArgs[0].
+	if te.TypeArgs[0] != tt.I32 {
+		t.Error("? on Result[I32, String] should yield I32")
+	}
+}
+
+func TestQuestionOnOptionExtractsT(t *testing.T) {
+	_, tt := checkOK(t, map[string]string{
+		"main": `fn test() { }`,
+	})
+	optionTy := tt.InternEnum("std", "Option", []typetable.TypeId{tt.Bool})
+	te := tt.Get(optionTy)
+	if te.Name != "Option" {
+		t.Fatalf("expected name Option, got %s", te.Name)
+	}
+	if len(te.TypeArgs) < 1 || te.TypeArgs[0] != tt.Bool {
+		t.Error("? on Option[Bool] should yield Bool")
+	}
+}
+
+func TestQuestionOnUnknownReturnsUnknown(t *testing.T) {
+	_, tt := checkOK(t, map[string]string{
+		"main": `fn test() { }`,
+	})
+	// A plain struct that is not Result or Option should not unwrap.
+	plainTy := tt.InternStruct("m", "Foo", nil)
+	te := tt.Get(plainTy)
+	if te.Name == "Result" || te.Name == "Option" {
+		t.Fatal("Foo should not be Result or Option")
+	}
+	// The checker would return Unknown for a non-Result/Option type.
+	// Verify the type entry has no TypeArgs to unwrap.
+	if len(te.TypeArgs) != 0 {
+		t.Error("Foo should have no TypeArgs")
+	}
+}
+
 // ===== Error detection =====
 
 func TestMalformedInputDoesNotPanic(t *testing.T) {

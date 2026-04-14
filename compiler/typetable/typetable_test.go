@@ -179,6 +179,39 @@ func TestIsNumeric(t *testing.T) {
 	}
 }
 
+func TestInternChannel(t *testing.T) {
+	tt := New()
+	ch := tt.InternChannel(tt.I32)
+	if ch == InvalidTypeId {
+		t.Fatal("InternChannel returned InvalidTypeId")
+	}
+	e := tt.Get(ch)
+	if e.Kind != KindChannel {
+		t.Errorf("expected KindChannel, got %s", e.Kind)
+	}
+	if e.Elem != tt.I32 {
+		t.Errorf("expected Elem == I32 (%d), got %d", tt.I32, e.Elem)
+	}
+}
+
+func TestInternChannelDeduplicates(t *testing.T) {
+	tt := New()
+	a := tt.InternChannel(tt.I32)
+	b := tt.InternChannel(tt.I32)
+	if a != b {
+		t.Errorf("same channel type got different IDs: %d vs %d", a, b)
+	}
+}
+
+func TestInternChannelDifferentElem(t *testing.T) {
+	tt := New()
+	a := tt.InternChannel(tt.I32)
+	b := tt.InternChannel(tt.Bool)
+	if a == b {
+		t.Error("Chan[I32] and Chan[Bool] should have different IDs")
+	}
+}
+
 func TestIsResolved(t *testing.T) {
 	tt := New()
 	if !tt.IsResolved(tt.I32) {

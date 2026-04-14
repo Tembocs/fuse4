@@ -3,6 +3,8 @@
 package lower
 
 import (
+	"fmt"
+
 	"github.com/Tembocs/fuse4/compiler/diagnostics"
 	"github.com/Tembocs/fuse4/compiler/hir"
 	"github.com/Tembocs/fuse4/compiler/mir"
@@ -17,6 +19,9 @@ type Lowerer struct {
 	b     *mir.Builder
 	vars  map[string]mir.LocalId // named variable → local
 	loops []loopCtx              // loop context stack for break/continue
+
+	// LiftedFunctions holds closure bodies that were lifted to standalone functions.
+	LiftedFunctions []*mir.Function
 }
 
 type loopCtx struct {
@@ -88,7 +93,7 @@ func (l *Lowerer) lowerExpr(e hir.Expr) mir.LocalId {
 	case *hir.QDotExpr:
 		return l.lowerField(&hir.FieldExpr{Expr: n.Expr, Name: n.Name})
 	case *hir.QuestionExpr:
-		return l.lowerExpr(n.Expr) // simplified: unwrap
+		return l.lowerQuestion(n)
 	case *hir.Block:
 		return l.lowerBlock(n)
 	case *hir.IfExpr:
@@ -108,20 +113,33 @@ func (l *Lowerer) lowerExpr(e hir.Expr) mir.LocalId {
 	case *hir.ContinueExpr:
 		return l.lowerContinue()
 	case *hir.SpawnExpr:
-		arg := l.lowerExpr(n.Expr)
-		dest := l.b.NewTemp(l.Types.Unit)
-		l.b.EmitCall(dest, arg, nil, l.Types.Unit, false)
-		return dest
+		return l.lowerSpawn(n)
 	case *hir.TupleExpr:
 		return l.lowerTuple(n)
 	case *hir.StructLitExpr:
 		return l.lowerStructLit(n)
 	case *hir.ClosureExpr:
-		// Closures lower as function references (simplified).
-		return l.constUnit()
+		return l.lowerClosure(n)
 	default:
 		return l.constUnit()
 	}
+}
+
+// lowerSpawn emits a call to fuse_rt_thread_spawn(fn, arg).
+func (l *Lowerer) lowerSpawn(n *hir.SpawnExpr) mir.LocalId {
+	fn := l.lowerExpr(n.Expr)
+
+	// Create a reference to the runtime spawn function.
+	spawnFn := l.b.NewTemp(l.Types.Unknown)
+	l.b.EmitConst(spawnFn, l.Types.Unknown, "fuse_rt_thread_spawn")
+
+	// Call spawn with the function as argument. The second arg (data) is null for now.
+	nullArg := l.b.NewTemp(l.Types.Unknown)
+	l.b.EmitConst(nullArg, l.Types.Unknown, "0")
+
+	dest := l.b.NewTemp(l.Types.Unit)
+	l.b.EmitCall(dest, spawnFn, []mir.LocalId{fn, nullArg}, l.Types.Unit, false)
+	return dest
 }
 
 func (l *Lowerer) lowerLiteral(n *hir.LiteralExpr) mir.LocalId {
@@ -219,6 +237,36 @@ func (l *Lowerer) lowerField(n *hir.FieldExpr) mir.LocalId {
 	return dest
 }
 
+// lowerQuestion implements the ? operator: check discriminant, extract Ok/Some value
+// on success, early-return Err/None on failure.
+func (l *Lowerer) lowerQuestion(n *hir.QuestionExpr) mir.LocalId {
+	subject := l.lowerExpr(n.Expr)
+
+	// Read the discriminant tag.
+	tag := l.b.NewTemp(l.Types.I32)
+	l.b.EmitFieldRead(tag, subject, "_tag", l.Types.I32)
+
+	// Compare: tag == 0 means success (Ok/Some).
+	zero := l.b.NewTemp(l.Types.I32)
+	l.b.EmitConst(zero, l.Types.I32, "0")
+	cmp := l.b.NewTemp(l.Types.Bool)
+	l.b.EmitBinOp(cmp, "==", tag, zero, l.Types.Bool)
+
+	successBlock := l.b.NewBlock()
+	failBlock := l.b.NewBlock()
+	l.b.TermBranch(cmp, successBlock, failBlock)
+
+	// Failure path: early return with the error/None value.
+	l.b.SwitchToBlock(failBlock)
+	l.b.TermReturn(subject)
+
+	// Success path: extract the inner value from _f0.
+	l.b.SwitchToBlock(successBlock)
+	result := l.b.NewTemp(n.Meta().Type)
+	l.b.EmitFieldRead(result, subject, "_f0", n.Meta().Type)
+	return result
+}
+
 func (l *Lowerer) lowerBlock(n *hir.Block) mir.LocalId {
 	for _, s := range n.Stmts {
 		l.lowerStmt(s)
@@ -293,23 +341,79 @@ func (l *Lowerer) lowerIf(n *hir.IfExpr) mir.LocalId {
 }
 
 func (l *Lowerer) lowerMatch(n *hir.MatchExpr) mir.LocalId {
-	l.lowerExpr(n.Subject)
+	subject := l.lowerExpr(n.Subject)
 	result := l.b.NewTemp(n.Meta().Type)
 	joinBlock := l.b.NewBlock()
 
-	for _, arm := range n.Arms {
+	for i, arm := range n.Arms {
 		armBlock := l.b.NewBlock()
-		l.b.TermGoto(armBlock) // simplified: no real pattern dispatch yet
+		nextBlock := l.b.NewBlock()
+		if i == len(n.Arms)-1 {
+			nextBlock = joinBlock // last arm falls to join if no match
+		}
+
+		switch pat := arm.Pattern.(type) {
+		case *hir.WildcardPattern:
+			l.b.TermGoto(armBlock)
+		case *hir.BindPattern:
+			l.b.TermGoto(armBlock)
+		case *hir.LiteralPattern:
+			cmp := l.b.NewTemp(l.Types.Bool)
+			l.b.EmitBinOp(cmp, "==", subject, l.emitConst(pat.Value, pat.Type), l.Types.Bool)
+			l.b.TermBranch(cmp, armBlock, nextBlock)
+		case *hir.ConstructorPattern:
+			tag := l.b.NewTemp(l.Types.I32)
+			l.b.EmitFieldRead(tag, subject, "_tag", l.Types.I32)
+			expected := l.b.NewTemp(l.Types.I32)
+			l.b.EmitConst(expected, l.Types.I32, fmt.Sprintf("%d", pat.Tag))
+			cmp := l.b.NewTemp(l.Types.Bool)
+			l.b.EmitBinOp(cmp, "==", tag, expected, l.Types.Bool)
+			l.b.TermBranch(cmp, armBlock, nextBlock)
+		default:
+			// nil pattern or unknown: unconditional (backwards compat with PatternDesc)
+			l.b.TermGoto(armBlock)
+		}
+
 		l.b.SwitchToBlock(armBlock)
+
+		// Bind pattern variable if needed
+		if pat, ok := arm.Pattern.(*hir.BindPattern); ok {
+			local := l.b.NewLocal(pat.Name, pat.Type)
+			l.vars[pat.Name] = local
+			l.b.EmitCopy(local, subject, pat.Type)
+		}
+
+		// Handle constructor pattern bindings
+		if pat, ok := arm.Pattern.(*hir.ConstructorPattern); ok {
+			for j, arg := range pat.Args {
+				if bp, ok := arg.(*hir.BindPattern); ok {
+					local := l.b.NewLocal(bp.Name, bp.Type)
+					l.vars[bp.Name] = local
+					fieldName := fmt.Sprintf("_f%d", j)
+					l.b.EmitFieldRead(local, subject, fieldName, bp.Type)
+				}
+			}
+		}
+
 		val := l.lowerExpr(arm.Body)
 		if !l.b.IsSealed() {
 			l.b.EmitCopy(result, val, n.Meta().Type)
 			l.b.TermGoto(joinBlock)
 		}
+
+		if i < len(n.Arms)-1 {
+			l.b.SwitchToBlock(nextBlock)
+		}
 	}
 
 	l.b.SwitchToBlock(joinBlock)
 	return result
+}
+
+func (l *Lowerer) emitConst(value string, ty typetable.TypeId) mir.LocalId {
+	dest := l.b.NewTemp(ty)
+	l.b.EmitConst(dest, ty, value)
+	return dest
 }
 
 func (l *Lowerer) lowerFor(n *hir.ForExpr) mir.LocalId {
@@ -440,6 +544,166 @@ func (l *Lowerer) lowerStructLit(n *hir.StructLitExpr) mir.LocalId {
 	dest := l.b.NewTemp(n.Meta().Type)
 	l.b.EmitStructInit(dest, n.Name, fields, n.Meta().Type)
 	return dest
+}
+
+// --- closure lowering ---
+
+// lowerClosure performs capture analysis, lifts the closure body to a
+// standalone function, and emits an environment struct at the call site.
+func (l *Lowerer) lowerClosure(n *hir.ClosureExpr) mir.LocalId {
+	// Phase 1: Capture analysis — find which outer variables the closure references.
+	captures := l.analyzeCaptures(n)
+
+	// Phase 2: Build the lifted function.
+	// The lifted function takes an env parameter followed by the closure's own params.
+	envType := l.Types.InternStruct("__closure", fmt.Sprintf("env_%d", len(l.LiftedFunctions)), nil)
+
+	var liftedParams []mir.Local
+	// First param: environment struct.
+	liftedParams = append(liftedParams, mir.Local{
+		Id: 0, Name: "__env", Type: envType,
+	})
+	// Then the closure's declared params.
+	for i, p := range n.Params {
+		liftedParams = append(liftedParams, mir.Local{
+			Id: mir.LocalId(i + 1), Name: p.Name, Type: p.Type,
+		})
+	}
+
+	liftedBuilder := mir.NewBuilder(
+		fmt.Sprintf("__closure_%d", len(l.LiftedFunctions)),
+		liftedParams,
+		n.ReturnType,
+	)
+
+	// Create a child lowerer for the closure body.
+	childLowerer := &Lowerer{
+		Types: l.Types,
+		b:     liftedBuilder,
+		vars:  make(map[string]mir.LocalId),
+	}
+
+	// Register env param and closure params in the child's var map.
+	envLocal := mir.LocalId(0)
+	for i, p := range n.Params {
+		childLowerer.vars[p.Name] = mir.LocalId(i + 1)
+	}
+
+	// Register captured variables — read from env struct fields.
+	for i, cap := range captures {
+		dest := childLowerer.b.NewLocal(cap.Name, cap.Type)
+		childLowerer.vars[cap.Name] = dest
+		childLowerer.b.EmitFieldRead(dest, envLocal, fmt.Sprintf("_c%d", i), cap.Type)
+	}
+
+	// Lower the closure body in the child lowerer.
+	if n.Body != nil {
+		bodyResult := childLowerer.lowerExpr(n.Body)
+		if !childLowerer.b.IsSealed() {
+			childLowerer.b.TermReturn(bodyResult)
+		}
+	}
+
+	liftedFn := liftedBuilder.Build()
+	l.LiftedFunctions = append(l.LiftedFunctions, liftedFn)
+
+	// Phase 3: At the closure expression site, emit environment struct init.
+	envDest := l.b.NewTemp(envType)
+	var captureLocals []mir.LocalId
+	for _, cap := range captures {
+		if id, ok := l.vars[cap.Name]; ok {
+			captureLocals = append(captureLocals, id)
+		} else {
+			// Captured variable not in scope — emit a zero.
+			tmp := l.b.NewTemp(cap.Type)
+			l.b.EmitConst(tmp, cap.Type, "0")
+			captureLocals = append(captureLocals, tmp)
+		}
+	}
+	l.b.EmitStructInit(envDest, fmt.Sprintf("env_%d", len(l.LiftedFunctions)-1), captureLocals, envType)
+
+	// Return the environment as the closure representation.
+	// (A full implementation would pair env with the function pointer,
+	// but for now the env serves as the closure value.)
+	return envDest
+}
+
+// capturedVar tracks a variable captured by a closure.
+type capturedVar struct {
+	Name string
+	Type typetable.TypeId
+}
+
+// analyzeCaptures scans a closure body for references to outer variables.
+func (l *Lowerer) analyzeCaptures(n *hir.ClosureExpr) []capturedVar {
+	// Collect closure param names to exclude them from captures.
+	paramNames := make(map[string]bool)
+	for _, p := range n.Params {
+		paramNames[p.Name] = true
+	}
+
+	var captures []capturedVar
+	seen := make(map[string]bool)
+	l.scanCaptures(n.Body, paramNames, seen, &captures)
+	return captures
+}
+
+func (l *Lowerer) scanCaptures(e hir.Expr, params map[string]bool, seen map[string]bool, out *[]capturedVar) {
+	if e == nil {
+		return
+	}
+	switch n := e.(type) {
+	case *hir.IdentExpr:
+		if !params[n.Name] && !seen[n.Name] {
+			if _, ok := l.vars[n.Name]; ok {
+				seen[n.Name] = true
+				*out = append(*out, capturedVar{Name: n.Name, Type: n.Meta().Type})
+			}
+		}
+	case *hir.Block:
+		for _, s := range n.Stmts {
+			l.scanCapturesStmt(s, params, seen, out)
+		}
+		l.scanCaptures(n.Tail, params, seen, out)
+	case *hir.BinaryExpr:
+		l.scanCaptures(n.Left, params, seen, out)
+		l.scanCaptures(n.Right, params, seen, out)
+	case *hir.UnaryExpr:
+		l.scanCaptures(n.Operand, params, seen, out)
+	case *hir.CallExpr:
+		l.scanCaptures(n.Callee, params, seen, out)
+		for _, a := range n.Args {
+			l.scanCaptures(a, params, seen, out)
+		}
+	case *hir.IfExpr:
+		l.scanCaptures(n.Cond, params, seen, out)
+		l.scanCaptures(n.Then, params, seen, out)
+		l.scanCaptures(n.Else, params, seen, out)
+	case *hir.ReturnExpr:
+		l.scanCaptures(n.Value, params, seen, out)
+	case *hir.AssignExpr:
+		l.scanCaptures(n.Target, params, seen, out)
+		l.scanCaptures(n.Value, params, seen, out)
+	case *hir.IndexExpr:
+		l.scanCaptures(n.Expr, params, seen, out)
+		l.scanCaptures(n.Index, params, seen, out)
+	case *hir.FieldExpr:
+		l.scanCaptures(n.Expr, params, seen, out)
+	}
+}
+
+func (l *Lowerer) scanCapturesStmt(s hir.Stmt, params map[string]bool, seen map[string]bool, out *[]capturedVar) {
+	if s == nil {
+		return
+	}
+	switch n := s.(type) {
+	case *hir.LetStmt:
+		l.scanCaptures(n.Value, params, seen, out)
+	case *hir.VarStmt:
+		l.scanCaptures(n.Value, params, seen, out)
+	case *hir.ExprStmt:
+		l.scanCaptures(n.Expr, params, seen, out)
+	}
 }
 
 // --- utility ---

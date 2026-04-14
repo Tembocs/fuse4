@@ -310,8 +310,25 @@ func (c *Checker) checkQDot(e *ast.QDotExpr) typetable.TypeId {
 // --- postfix ? ---
 
 func (c *Checker) checkQuestion(e *ast.QuestionExpr) typetable.TypeId {
-	c.checkExpr(e.Expr)
-	// ? unwraps Result/Option — simplified for now.
+	inner := c.checkExpr(e.Expr)
+	te := c.Types.Get(inner)
+
+	// ? on Result[T, E] → T (propagates E)
+	// ? on Option[T] → T (propagates None)
+	if te.Kind == typetable.KindEnum || te.Kind == typetable.KindStruct {
+		switch te.Name {
+		case "Result":
+			if len(te.TypeArgs) >= 1 {
+				return te.TypeArgs[0] // T from Result[T, E]
+			}
+		case "Option":
+			if len(te.TypeArgs) >= 1 {
+				return te.TypeArgs[0] // T from Option[T]
+			}
+		}
+	}
+
+	// If we can't determine the inner type, return Unknown.
 	return c.Types.Unknown
 }
 

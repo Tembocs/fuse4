@@ -105,7 +105,8 @@ func (b *Builder) EmitBorrow(dest, src LocalId, ty typetable.TypeId, kind Borrow
 
 // EmitDrop emits: drop(src)
 func (b *Builder) EmitDrop(src LocalId) {
-	b.emit(Instr{Kind: InstrDrop, Src: src})
+	ty := b.Fn.Locals[src].Type
+	b.emit(Instr{Kind: InstrDrop, Src: src, Type: ty})
 }
 
 // EmitCall emits: dest = callee(args...)

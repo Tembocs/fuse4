@@ -20,6 +20,19 @@ func emitOne(t *testing.T, fn *mir.Function, tt *typetable.TypeTable) string {
 	return src
 }
 
+func emitOneWithDropTypes(t *testing.T, fn *mir.Function, tt *typetable.TypeTable, dropTypes map[typetable.TypeId]bool) string {
+	t.Helper()
+	e := NewEmitter(tt)
+	for k, v := range dropTypes {
+		e.DropTypes[k] = v
+	}
+	src := e.Emit([]*mir.Function{fn})
+	for _, err := range e.Errors {
+		t.Errorf("emit error: %s", err)
+	}
+	return src
+}
+
 func buildSimpleFn(tt *typetable.TypeTable, name string, retType typetable.TypeId, setup func(b *mir.Builder)) *mir.Function {
 	b := mir.NewBuilder(name, nil, retType)
 	setup(b)
@@ -396,5 +409,81 @@ func TestHelloWorldOutput(t *testing.T) {
 	}
 	if !strings.Contains(src, "return _l0") {
 		t.Error("output should return")
+	}
+}
+
+// ===== Destructor codegen (Drop trait) =====
+
+func TestDropWithDropTrait(t *testing.T) {
+	tt := typetable.New()
+	sty := tt.InternStruct("m", "Resource", nil)
+	fn := buildSimpleFn(tt, "test", tt.Unit, func(b *mir.Builder) {
+		obj := b.NewLocal("r", sty)
+		b.EmitStructInit(obj, "Resource", nil, sty)
+		b.EmitDrop(obj)
+		tmp := b.NewTemp(tt.Unit)
+		b.EmitConst(tmp, tt.Unit, "()")
+		b.TermReturn(tmp)
+	})
+
+	src := emitOneWithDropTypes(t, fn, tt, map[typetable.TypeId]bool{sty: true})
+	if !strings.Contains(src, "Fuse_m__Resource_drop(&_l0)") {
+		t.Errorf("Drop trait type should emit destructor call, got:\n%s", src)
+	}
+}
+
+func TestDropWithoutDropTrait(t *testing.T) {
+	tt := typetable.New()
+	sty := tt.InternStruct("m", "Plain", nil)
+	fn := buildSimpleFn(tt, "test", tt.Unit, func(b *mir.Builder) {
+		obj := b.NewLocal("p", sty)
+		b.EmitStructInit(obj, "Plain", nil, sty)
+		b.EmitDrop(obj)
+		tmp := b.NewTemp(tt.Unit)
+		b.EmitConst(tmp, tt.Unit, "()")
+		b.TermReturn(tmp)
+	})
+
+	src := emitOne(t, fn, tt)
+	if strings.Contains(src, "_drop(") {
+		t.Errorf("Type without Drop trait should not emit destructor call, got:\n%s", src)
+	}
+}
+
+func TestDropUnitErased(t *testing.T) {
+	tt := typetable.New()
+	fn := buildSimpleFn(tt, "test", tt.Unit, func(b *mir.Builder) {
+		u := b.NewTemp(tt.Unit)
+		b.EmitConst(u, tt.Unit, "()")
+		b.EmitDrop(u)
+		b.TermReturn(u)
+	})
+
+	src := emitOne(t, fn, tt)
+	if strings.Contains(src, "drop") {
+		t.Errorf("Drop on unit type should emit nothing, got:\n%s", src)
+	}
+}
+
+// ===== Channel type emission =====
+
+func TestChannelTypeEmission(t *testing.T) {
+	tt := typetable.New()
+	chanTy := tt.InternChannel(tt.I32)
+	fn := buildSimpleFn(tt, "test", tt.Unit, func(b *mir.Builder) {
+		ch := b.NewTemp(chanTy)
+		b.EmitConst(ch, chanTy, "0")
+		tmp := b.NewTemp(tt.Unit)
+		b.EmitConst(tmp, tt.Unit, "()")
+		b.TermReturn(tmp)
+	})
+
+	src := emitOne(t, fn, tt)
+	// Should contain a channel typedef.
+	if !strings.Contains(src, "typedef struct { void* _impl;") {
+		t.Errorf("channel type should emit typedef with _impl field\n%s", src)
+	}
+	if !strings.Contains(src, "FuseChan_int32_t") {
+		t.Errorf("channel type name should be FuseChan_int32_t\n%s", src)
 	}
 }

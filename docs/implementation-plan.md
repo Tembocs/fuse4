@@ -352,6 +352,21 @@ Exit criteria:
 - Task 03: Add checker regression corpus [W05-P05-T03-CHECKER-REGRESSIONS]
   DoD: each fixed checker class has a dedicated regression.
 
+### Phase 06: Monomorphization [W05-P06-MONOMORPHIZATION]
+
+- Task 01: Collect concrete instantiations at call sites
+  [W05-P06-T01-COLLECT-INSTANTIATIONS]
+  DoD: all generic function and type usages produce concrete type argument sets.
+- Task 02: Validate specialization completeness
+  [W05-P06-T02-VALIDATE-SPECIALIZATIONS]
+  DoD: partially-resolved type arguments are rejected before lowering.
+- Task 03: Specialize generic functions into concrete HIR/MIR
+  [W05-P06-T03-SPECIALIZE-FUNCTIONS]
+  DoD: each concrete instantiation produces a distinct lowered function.
+- Task 04: Integrate monomorph into the driver pipeline
+  [W05-P06-T04-INTEGRATE-PIPELINE]
+  DoD: `Build()` runs monomorphization between checking and lowering.
+
 ## Wave 06: Ownership, Liveness, and Destruction
 
 Goal: compute ownership and liveness once and expose it as stable metadata for
@@ -430,6 +445,45 @@ Exit criteria:
 - Task 03: Lower enum constructors and bare variant values
   [W07-P03-T03-ENUM-CONSTRUCTORS]
   DoD: enum variant values and constructor calls lower distinctly and correctly.
+
+### Phase 04: Pattern Match Lowering [W07-P04-PATTERN-MATCH-LOWERING]
+
+- Task 01: Add structured pattern nodes to HIR
+  [W07-P04-T01-HIR-PATTERN-NODES]
+  DoD: MatchArm carries structured Pattern (LiteralPat, BindPat,
+  ConstructorPat, WildcardPat), not a text description.
+- Task 02: Lower match to cascading branches
+  [W07-P04-T02-MATCH-TO-BRANCHES]
+  DoD: each arm produces a condition check and branch; wildcard arms produce
+  unconditional jumps; arms are tested in declaration order.
+- Task 03: Lower enum discriminant access
+  [W07-P04-T03-ENUM-DISCRIMINANT-ACCESS]
+  DoD: match on enum types reads the tag field and branches by tag value.
+
+### Phase 05: Error Propagation Lowering [W07-P05-ERROR-PROPAGATION-LOWERING]
+
+- Task 01: Type-check ? operator on Result and Option
+  [W07-P05-T01-QUESTION-TYPECHECK]
+  DoD: `?` on `Result[T, E]` returns `T`; `?` on `Option[T]` returns `T`;
+  type errors are diagnosed.
+- Task 02: Lower ? to branch-and-early-return
+  [W07-P05-T02-QUESTION-LOWERING]
+  DoD: `?` emits a discriminant check, extracts Ok/Some value on success,
+  and returns Err/None on failure.
+
+### Phase 06: Closure Lowering [W07-P06-CLOSURE-LOWERING]
+
+- Task 01: Implement capture analysis
+  [W07-P06-T01-CAPTURE-ANALYSIS]
+  DoD: closure bodies are scanned for references to outer variables.
+- Task 02: Generate environment struct and lift closure body
+  [W07-P06-T02-CLOSURE-LIFTING]
+  DoD: each closure produces a lifted function taking an env parameter and
+  a struct type holding captured variables.
+- Task 03: Emit closure construction at expression site
+  [W07-P06-T03-CLOSURE-CONSTRUCTION]
+  DoD: closure expressions emit struct init for the environment and pair it
+  with the lifted function pointer.
 
 ## Wave 08: Runtime Library
 
@@ -519,10 +573,23 @@ Exit criteria:
   [W09-P04-T02-SEMANTIC-EQUALITY]
   DoD: non-scalar equality does not compile down to invalid raw C comparisons.
 
-### Phase 05: Backend Regression Closure [W09-P05-BACKEND-REGRESSION-CLOSURE]
+### Phase 05: Drop Codegen [W09-P05-DROP-CODEGEN]
+
+- Task 01: Flow Drop trait metadata to codegen
+  [W09-P05-T01-DROP-TRAIT-METADATA]
+  DoD: codegen can determine whether a type has a Drop implementation.
+- Task 02: Emit destructor calls for InstrDrop
+  [W09-P05-T02-EMIT-DESTRUCTOR-CALLS]
+  DoD: `InstrDrop` on types with Drop impls emits `TypeName_drop(&_lN);`
+  in generated C. Types without Drop emit no-ops.
+- Task 03: Test drop codegen with owned resources
+  [W09-P05-T03-DROP-CODEGEN-TESTS]
+  DoD: regression tests verify destructor calls appear in generated C.
+
+### Phase 06: Backend Regression Closure [W09-P06-BACKEND-REGRESSION-CLOSURE]
 
 - Task 01: Add regression tests from fuse3 bug history
-  [W09-P05-T01-BUG-HISTORY-REGRESSIONS]
+  [W09-P06-T01-BUG-HISTORY-REGRESSIONS]
   DoD: codegen bugs discovered in fuse3 have direct regression coverage.
 
 ## Wave 10: Native Build Driver and Linking
@@ -660,6 +727,22 @@ Exit criteria:
   DoD: mutex, rwlock, cond, once, and shared APIs work.
 - Task 03: Implement channels [W13-P02-T03-CHANNELS]
   DoD: channel operations reflect the concurrency model from the guide.
+
+### Phase 03: Compiler-Side Concurrency Integration [W13-P03-COMPILER-CONCURRENCY-INTEGRATION]
+
+- Task 01: Add channel type kind to the type table
+  [W13-P03-T01-CHANNEL-TYPE-KIND]
+  DoD: `KindChannel` exists in the type table with an element type parameter.
+- Task 02: Lower spawn to runtime thread creation
+  [W13-P03-T02-SPAWN-TO-RUNTIME]
+  DoD: `spawn expr` emits `fuse_rt_thread_spawn(fn, arg)` in codegen.
+- Task 03: Lower channel operations to runtime calls
+  [W13-P03-T03-CHANNEL-OPS-TO-RUNTIME]
+  DoD: send, recv, and close emit corresponding `fuse_rt_*` calls.
+- Task 04: Type-check channel expressions with element types
+  [W13-P03-T04-CHANNEL-TYPECHECK]
+  DoD: `Chan[I32]` is a valid type; send/recv are type-checked against the
+  channel element type.
 
 ## Wave 14: Stage 2 Compiler Port
 

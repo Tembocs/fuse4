@@ -164,10 +164,47 @@ type MatchExpr struct {
 func (n *MatchExpr) exprNode() {}
 
 type MatchArm struct {
-	PatternDesc string // textual description for now; full pattern HIR in later waves
-	Guard       Expr   // may be nil
+	Pattern     Pattern // structured pattern (nil falls back to PatternDesc)
+	PatternDesc string  // textual description; kept for backwards compat, deprecated
+	Guard       Expr    // may be nil
 	Body        Expr
 }
+
+// Pattern is a structured match pattern in HIR.
+type Pattern interface {
+	patternNode()
+}
+
+// LiteralPattern matches a literal value.
+type LiteralPattern struct {
+	Value string
+	Type  typetable.TypeId
+}
+
+func (p *LiteralPattern) patternNode() {}
+
+// BindPattern binds the matched value to a name.
+type BindPattern struct {
+	Name string
+	Type typetable.TypeId
+}
+
+func (p *BindPattern) patternNode() {}
+
+// ConstructorPattern matches an enum variant by tag.
+type ConstructorPattern struct {
+	Name string
+	Tag  int
+	Args []Pattern
+	Type typetable.TypeId
+}
+
+func (p *ConstructorPattern) patternNode() {}
+
+// WildcardPattern matches anything without binding.
+type WildcardPattern struct{}
+
+func (p *WildcardPattern) patternNode() {}
 
 type ForExpr struct {
 	nodeBase

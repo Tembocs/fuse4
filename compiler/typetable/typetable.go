@@ -34,6 +34,7 @@ const (
 	KindFunc              // function type
 	KindGenericParam      // unresolved type parameter T
 	KindNever             // ! / Never (diverging)
+	KindChannel           // channel type with element type
 )
 
 func (k TypeKind) String() string {
@@ -56,6 +57,7 @@ func (k TypeKind) String() string {
 		KindFunc:         "Func",
 		KindGenericParam: "GenericParam",
 		KindNever:        "Never",
+		KindChannel:      "Channel",
 	}
 	if int(k) < len(names) {
 		return names[k]
@@ -186,7 +188,7 @@ func internKey(e TypeEntry) string {
 		return e.Name
 	case KindInt, KindUint, KindFloat:
 		return fmt.Sprintf("%s_%d", e.Name, e.BitSize)
-	case KindPtr, KindRef, KindMutRef, KindSlice:
+	case KindPtr, KindRef, KindMutRef, KindSlice, KindChannel:
 		return fmt.Sprintf("%s[%d]", e.Kind, e.Elem)
 	case KindArray:
 		return fmt.Sprintf("Array[%d;%d]", e.Elem, e.ArrayLen)
@@ -260,6 +262,11 @@ func (tt *TypeTable) InternEnum(module, name string, typeArgs []TypeId) TypeId {
 // InternGenericParam interns a generic type parameter.
 func (tt *TypeTable) InternGenericParam(module, name string) TypeId {
 	return tt.insert(TypeEntry{Kind: KindGenericParam, Module: module, Name: name})
+}
+
+// InternChannel interns a channel type with an element type.
+func (tt *TypeTable) InternChannel(elem TypeId) TypeId {
+	return tt.insert(TypeEntry{Kind: KindChannel, Elem: elem, Name: "Chan"})
 }
 
 // --- query helpers ---

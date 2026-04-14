@@ -129,6 +129,17 @@ func (c *livenessCtx) walkExpr(e hir.Expr) {
 	case *hir.MatchExpr:
 		c.walkExpr(n.Subject)
 		for _, arm := range n.Arms {
+			// Track pattern variable definitions for liveness.
+			if bp, ok := arm.Pattern.(*hir.BindPattern); ok {
+				c.defineLocal(bp.Name, hir.OwnerValue)
+			}
+			if cp, ok := arm.Pattern.(*hir.ConstructorPattern); ok {
+				for _, arg := range cp.Args {
+					if bp, ok := arg.(*hir.BindPattern); ok {
+						c.defineLocal(bp.Name, hir.OwnerValue)
+					}
+				}
+			}
 			c.walkExpr(arm.Guard)
 			c.walkExpr(arm.Body)
 		}
@@ -156,7 +167,10 @@ func (c *livenessCtx) walkExpr(e hir.Expr) {
 			c.walkExpr(f.Value)
 		}
 	case *hir.ClosureExpr:
-		// Closures start a new liveness scope (simplified: we don't descend).
+		// Walk closure body for liveness — captured variables affect outer liveness.
+		if n.Body != nil {
+			c.walkExpr(n.Body)
+		}
 	case *hir.LiteralExpr, *hir.ContinueExpr:
 		// leaf nodes
 	}

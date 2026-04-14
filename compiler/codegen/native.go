@@ -17,9 +17,10 @@ import (
 //   5. Composite types emitted before use / typed aggregate fallback
 //   6. Identifier sanitization and collision avoidance
 type NativeBackend struct {
-	types    *typetable.TypeTable
-	optimize bool
-	out      strings.Builder
+	types     *typetable.TypeTable
+	optimize  bool
+	out       strings.Builder
+	DropTypes map[typetable.TypeId]bool // types with Drop trait implementations
 
 	// labelCounter provides unique labels.
 	labelCounter int
@@ -27,7 +28,7 @@ type NativeBackend struct {
 
 // NewNativeBackend creates a native x86-64 assembly backend.
 func NewNativeBackend(types *typetable.TypeTable, optimize bool) *NativeBackend {
-	return &NativeBackend{types: types, optimize: optimize}
+	return &NativeBackend{types: types, optimize: optimize, DropTypes: make(map[typetable.TypeId]bool)}
 }
 
 func (b *NativeBackend) Name() string { return "native" }
@@ -126,7 +127,18 @@ func (b *NativeBackend) emitInstr(fn *mir.Function, instr *mir.Instr) {
 		b.writef("    mov [rbp%s], rax", dest)
 
 	case mir.InstrDrop:
-		b.writef("    ; drop local%d", instr.Src)
+		if b.isUnit(instr.Type) {
+			return
+		}
+		if b.DropTypes[instr.Type] {
+			// Type has a Drop implementation — call its destructor.
+			src := b.localOffset(fn, instr.Src)
+			name := MangleName("", MangleType(b.types, instr.Type)+"_drop")
+			b.writef("    lea rdi, [rbp%s]", src)
+			b.writef("    call %s", name)
+		} else {
+			b.writef("    ; drop local%d (no-op)", instr.Src)
+		}
 
 	case mir.InstrCall:
 		// Push args in reverse order (simplified cdecl).

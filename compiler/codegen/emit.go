@@ -11,8 +11,9 @@ import (
 
 // Emitter generates C11 source from MIR functions.
 type Emitter struct {
-	Types  *typetable.TypeTable
-	Errors []diagnostics.Diagnostic
+	Types     *typetable.TypeTable
+	Errors    []diagnostics.Diagnostic
+	DropTypes map[typetable.TypeId]bool // types with Drop trait implementations
 
 	out     strings.Builder
 	indent  int
@@ -22,8 +23,9 @@ type Emitter struct {
 // NewEmitter creates an emitter for the given type table.
 func NewEmitter(types *typetable.TypeTable) *Emitter {
 	return &Emitter{
-		Types:   types,
-		emitted: make(map[typetable.TypeId]bool),
+		Types:     types,
+		emitted:   make(map[typetable.TypeId]bool),
+		DropTypes: make(map[typetable.TypeId]bool),
 	}
 }
 
@@ -116,6 +118,14 @@ func (e *Emitter) emitTypeDefIfNeeded(id typetable.TypeId) {
 		name := MangleType(e.Types, id)
 		elemC := MangleType(e.Types, te.Elem)
 		e.writef("typedef struct { %s data[%d]; } %s;", elemC, te.ArrayLen, name)
+		e.writeln("")
+	case typetable.KindChannel:
+		e.emitTypeDefIfNeeded(te.Elem)
+		e.emitted[id] = true
+		name := MangleType(e.Types, id)
+		elemC := MangleType(e.Types, te.Elem)
+		// Channel is a pointer to a runtime channel struct.
+		e.writef("typedef struct { void* _impl; /* Chan<%s> */ } %s;", elemC, name)
 		e.writeln("")
 	default:
 		e.emitted[id] = true
@@ -219,9 +229,17 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 		e.writeln("")
 
 	case mir.InstrDrop:
-		e.writeIndent()
-		e.writef("/* drop %s */", e.localName(instr.Src))
-		e.writeln("")
+		if e.isUnit(instr.Type) {
+			return
+		}
+		if e.DropTypes[instr.Type] {
+			// Type has a Drop implementation — call its destructor.
+			ty := MangleType(e.Types, instr.Type)
+			e.writeIndent()
+			e.writef("%s_drop(&%s);", ty, e.localName(instr.Src))
+			e.writeln("")
+		}
+		// Types without Drop: no-op.
 
 	case mir.InstrCall:
 		if e.isUnit(instr.Type) {

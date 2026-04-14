@@ -321,3 +321,285 @@ does.
 **Verification**:
 The new language guide and implementation plan both treat divergence as a
 structural contract.
+
+### L007 — Pattern matching must dispatch on discriminants, not fall through
+
+Date: 2026-04-14
+Discovered during: Pre-Wave-17 audit
+
+**Reproducer**:
+A `match` expression with multiple arms compiles, but the generated code jumps
+unconditionally to the first arm's block. All subsequent arms are dead code.
+
+**What was tried first**:
+The lowerer emitted `TermGoto(armBlock)` for each arm without evaluating the
+pattern. This made match expressions parse, type-check, and "work" in tests
+that only had one arm.
+
+**Root cause**:
+Match lowering was left as a stub. HIR stores patterns as text strings
+(`PatternDesc string`) instead of structured pattern nodes, making real dispatch
+impossible at the MIR level.
+
+**Spec gap**:
+The language guide defines pattern matching semantics, but the HIR and MIR
+specifications did not mandate structured pattern representation.
+
+**Plan gap**:
+No wave or phase owns pattern lowering as an explicit task. Wave 07 (HIR→MIR)
+mentions control flow but does not list match dispatch. Wave 05 (type checking)
+mentions match but does not require exhaustiveness.
+
+**Fix**:
+1. Add structured pattern nodes to HIR (LiteralPat, BindPat, ConstructorPat,
+   WildcardPat).
+2. Lower match expressions to cascading branch chains in MIR using enum
+   discriminant comparison.
+3. Emit correct `TermBranch` / `TermSwitch` sequences in codegen.
+
+**Cascading effects**:
+Enum destructuring, exhaustiveness checking, and guard expressions all depend on
+real pattern dispatch.
+
+**Architectural lesson**:
+A stub that compiles without error is more dangerous than a stub that crashes.
+Stubs must be tracked to completion or produce diagnostics.
+
+**Verification**:
+Match expressions with multiple arms produce distinct codegen paths, tested via
+unit tests on the lowerer and codegen.
+
+### L008 — Monomorphization cannot be deferred past codegen
+
+Date: 2026-04-14
+Discovered during: Pre-Wave-17 audit
+
+**Reproducer**:
+A generic function `fn id[T](x: T) -> T { x }` type-checks, but no concrete
+specialization is collected or emitted. Any program using `Option[I32]`,
+`Result[T, E]`, or other generic types cannot produce working binaries.
+
+**What was tried first**:
+The bootstrap path avoided generics entirely. The Stage 2 compiler and its tests
+use only concrete types, so the self-hosting gate (Wave 15) passed without
+monomorphization.
+
+**Root cause**:
+The `compiler/monomorph/` package was created as a placeholder but never
+implemented. No wave in the implementation plan owns generic specialization as a
+task with entry/exit criteria.
+
+**Spec gap**:
+The language guide defines generics and monomorphization, but the implementation
+plan does not schedule the work.
+
+**Plan gap**:
+Wave 05 mentions generic inference. Wave 07 mentions lowering. Neither owns the
+actual collection of concrete instantiations or the expansion of generic
+function bodies with concrete types. The monomorph package is referenced in the
+repository layout but has no corresponding wave tasks.
+
+**Fix**:
+1. Implement `monomorph.Collect()` to scan all call sites and collect concrete
+   type argument sets.
+2. Implement `monomorph.Specialize()` to produce concrete MIR functions from
+   generic HIR templates.
+3. Integrate into the driver pipeline between type checking and MIR lowering.
+
+**Cascading effects**:
+All generic stdlib types (Option, Result, List, Map, Set) and user-defined
+generic functions require this to produce working code.
+
+**Architectural lesson**:
+A placeholder package with a doc.go is not a substitute for a scheduled,
+tested implementation. If a feature has no wave task, it will not be built.
+
+**Verification**:
+Generic functions produce specialized MIR and correct C output, tested via
+unit tests on monomorph and codegen.
+
+### L009 — Error propagation operator must lower to control flow
+
+Date: 2026-04-14
+Discovered during: Pre-Wave-17 audit
+
+**Reproducer**:
+The `?` operator on a `Result[T, E]` expression compiles, but the checker
+returns `Unknown` type and the lowerer simply unwraps the inner expression
+without any error checking or early return.
+
+**What was tried first**:
+The checker and lowerer treated `?` as a pass-through: `checkQuestion()` returns
+`Unknown`, and `lowerExpr(QuestionExpr)` returns `lowerExpr(n.Expr)`. This
+allowed the pipeline to proceed without crashing.
+
+**Root cause**:
+The `?` operator requires knowledge of the Result/Option type structure to
+extract the success value and propagate the error. Without monomorphization
+and concrete enum layout, this was deferred — but no task tracked its
+completion.
+
+**Spec gap**:
+The language guide defines `?` semantics, but the HIR and lowering contracts
+do not specify how `?` maps to branching control flow.
+
+**Plan gap**:
+No wave or phase owns the `?` operator implementation. Wave 05 type-checks it
+as Unknown. Wave 07 lowers it as a no-op.
+
+**Fix**:
+1. Checker: extract the inner `T` from `Result[T, E]` or `Option[T]` and
+   return it as the expression type.
+2. Lowerer: emit a branch that checks for Err/None and early-returns if so,
+   otherwise continues with the unwrapped value.
+3. Codegen: standard branch emission handles this naturally.
+
+**Cascading effects**:
+Depends on enum discriminant access (pattern matching) and knowledge of
+Result/Option layout (monomorphization or special-casing).
+
+**Architectural lesson**:
+Operators that affect control flow cannot be stubbed as expression-level
+pass-throughs. They must produce branches or they silently corrupt behavior.
+
+**Verification**:
+`?` on Result/Option produces early-return branches in MIR, tested via
+unit tests on check and lower.
+
+### L010 — Drop codegen must emit actual destructor calls
+
+Date: 2026-04-14
+Discovered during: Pre-Wave-17 audit
+
+**Reproducer**:
+The liveness pass correctly computes `DestroyEnd` flags, and the lowerer emits
+`EmitDrop` instructions, but the C11 backend emits only `/* drop _lN */`
+comments. No actual cleanup code runs at runtime.
+
+**What was tried first**:
+The codegen emitted comments as placeholders, intending to revisit drop emission
+later. Because no test actually ran the generated C with destructor-dependent
+resources, the gap was invisible.
+
+**Root cause**:
+Drop emission requires knowing whether a type has a `Drop` trait implementation.
+Without that metadata flow from check → codegen, the backend cannot emit the
+correct destructor call.
+
+**Spec gap**:
+The language guide defines deterministic destruction, but the backend contracts
+do not specify how `InstrDrop` maps to C code.
+
+**Plan gap**:
+Wave 06 (ownership/liveness) schedules drop intent insertion, but no wave
+schedules the codegen side — the actual C emission of destructor calls.
+
+**Fix**:
+1. Flow Drop-trait information from the checker into the type table or a
+   side table accessible during codegen.
+2. Codegen: emit `TypeName_drop(&_lN);` for types with Drop impls;
+   no-op for types without.
+3. Test with types that have explicit Drop implementations.
+
+**Cascading effects**:
+Resource management (file handles, locks, allocations) depends on actual
+destructor calls, not comments.
+
+**Architectural lesson**:
+A comment is not a drop. If codegen emits a comment where it should emit code,
+the feature does not exist.
+
+**Verification**:
+InstrDrop for types with Drop impls emits function calls in generated C, tested
+via codegen unit tests.
+
+### L011 — Closures must capture environments, not erase to unit
+
+Date: 2026-04-14
+Discovered during: Pre-Wave-17 audit
+
+**Reproducer**:
+A closure expression `|x| { x + 1 }` type-checks and produces a valid function
+type, but the lowerer returns `constUnit()` — the closure body is never lowered
+to MIR and no environment capture occurs.
+
+**What was tried first**:
+The lowerer treated closures as "function references (simplified)" and returned
+unit. Liveness analysis also skips closure bodies entirely.
+
+**Root cause**:
+Closures require environment capture analysis (which outer variables are
+referenced), allocation of a closure struct, and emission of a lifted function.
+This is a non-trivial transformation that was deferred without a plan task.
+
+**Spec gap**:
+The language guide describes closures but does not specify the lowering
+representation (lifted function + environment struct).
+
+**Plan gap**:
+No wave owns closure lowering. Wave 07 (HIR→MIR) does not mention closures.
+
+**Fix**:
+1. Implement capture analysis: scan closure bodies for references to outer
+   variables.
+2. Generate an environment struct type with captured variables.
+3. Lift the closure body to a standalone MIR function that takes the
+   environment as a parameter.
+4. At the closure expression site, emit struct init for the environment and
+   a function pointer pair.
+
+**Cascading effects**:
+Iterators, callbacks, and higher-order functions all depend on closures.
+
+**Architectural lesson**:
+A feature that type-checks but does not lower is a silent miscompilation, not a
+deferred feature.
+
+**Verification**:
+Closures produce lifted functions and environment structs in MIR and C output,
+tested via unit tests on lower and codegen.
+
+### L012 — Channels must exist as types before concurrency can work
+
+Date: 2026-04-14
+Discovered during: Pre-Wave-17 audit
+
+**Reproducer**:
+The stdlib defines `chan.fuse` with channel operations, but no channel type
+exists in the type table or compiler. `spawn` expressions lower to plain
+function calls with no threading semantics.
+
+**What was tried first**:
+The lowerer treats `SpawnExpr` as `EmitCall(dest, arg, nil, Unit, false)` — a
+synchronous function call. No thread creation occurs.
+
+**Root cause**:
+Channel types and spawn semantics require runtime integration (thread creation,
+queue management) that was deferred. The stdlib `chan.fuse` file defines the
+API surface but the compiler has no knowledge of channel types.
+
+**Spec gap**:
+The language guide describes channels and spawn as language primitives, but the
+type table and backend contracts do not include them.
+
+**Plan gap**:
+Wave 08 (runtime) implements thread and sync primitives in C, but no wave
+schedules the compiler-side integration: channel type interning, spawn lowering
+to `fuse_rt_thread_spawn`, or channel operation lowering to runtime calls.
+
+**Fix**:
+1. Add channel type kind to the type table.
+2. Lower `spawn expr` to a runtime call: `fuse_rt_thread_spawn(fn, arg)`.
+3. Lower channel operations (send, recv, close) to corresponding runtime calls.
+4. Type-check channel expressions with proper generic element types.
+
+**Cascading effects**:
+All concurrency features in the language depend on channels and proper spawn.
+
+**Architectural lesson**:
+A runtime library without compiler integration is dead code. Both sides must be
+scheduled together.
+
+**Verification**:
+Spawn emits `fuse_rt_thread_spawn` calls and channel operations emit runtime
+calls, tested via codegen unit tests.

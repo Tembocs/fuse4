@@ -90,6 +90,8 @@ func MangleType(tt *typetable.TypeTable, id typetable.TypeId) string {
 		return MangleName(e.Module, e.Name)
 	case typetable.KindEnum:
 		return MangleName(e.Module, e.Name)
+	case typetable.KindChannel:
+		return "FuseChan_" + SanitizeIdent(MangleType(tt, e.Elem))
 	case typetable.KindFunc:
 		return "FuseFunc" // simplified; full function pointer mangling in later waves
 	case typetable.KindUnknown:

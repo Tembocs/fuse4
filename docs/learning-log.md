@@ -693,3 +693,117 @@ This entry is verified by the existence of L007–L012 (six features that passed
 all structural tests while being stubbed) and by the current state of the e2e
 suite (21 tests that compile and run programs, but none that exercise generics,
 pattern matching on enums, closures, error propagation, or drop behavior).
+
+### L014 — Document requirements for preventing self-verifying plans
+
+Date: 2026-04-14
+Discovered during: Post-audit review of foundational document effectiveness
+
+**Reproducer**:
+L013 identified that the plan, implementation, and tests formed a closed loop.
+This entry records the concrete requirements that each foundational document
+must satisfy to prevent that failure pattern from recurring.
+
+**What was tried first**:
+The five foundational documents were written with structural completeness as
+the standard. The language guide described features. The plan scheduled tasks.
+The rules defined invariants. The layout defined placement. The learning log
+recorded bugs. None of them required a running program as evidence that a
+feature works.
+
+**Root cause**:
+The documents governed *how* to build the compiler but not *how to prove* it
+works. Structural properties (HIR carries metadata, MIR terminates, codegen
+emits typed initializers) are necessary but are not proof of correctness. A
+stub that returns unit satisfies every structural property while producing
+wrong behavior. Only a program that compiles, runs, and produces the expected
+output proves a feature works.
+
+**Spec gap**:
+The language guide describes features without requiring compilable proof
+programs. A feature section that says "Fuse has pattern matching" without a
+runnable example that the compiler must handle is an untestable claim.
+
+**Plan gap**:
+The implementation plan defines exit criteria as structural properties, not
+behavioral outcomes. No wave requires a proof program.
+
+**Fix**:
+The following requirements are normative for all five foundational documents
+going forward.
+
+**implementation-plan.md** must satisfy:
+1. Every wave that introduces a user-visible feature must include a "proof
+   program" — a concrete Fuse program that would fail to compile or produce
+   wrong output if the feature were stubbed. The proof program is part of the
+   wave's exit criteria.
+2. Exit criteria must be behavioral: "this program compiles, runs, and
+   returns exit code N" or "this program prints X to stdout." Structural
+   criteria ("HIR nodes carry metadata") are permitted only alongside
+   behavioral criteria, never alone.
+3. Every task must name what it replaces: "currently X is stubbed at file:line,
+   producing behavior Y." This forces an audit of current state before claiming
+   work is complete.
+4. Cross-wave dependencies must be explicit: "Wave 07 lowering depends on
+   Wave 05 producing resolved types for generic instantiations. The proof
+   program for Wave 07 must use a generic type to exercise this dependency."
+
+**language-guide.md** must satisfy:
+1. Every feature section must end with a compilable Fuse example and its
+   expected output (exit code or stdout). These examples are the source of
+   truth for the e2e test suite.
+2. Every operator and control structure must have a behavioral contract:
+   what the generated code must do, not just what the syntax looks like.
+   "`?` propagates errors" is insufficient. "`?` on `Result[T, E]` evaluates
+   the expression; if `Ok(v)`, evaluates to `v`; if `Err(e)`, the enclosing
+   function returns `Err(e)` immediately; the generated code must contain a
+   branch" is a testable contract.
+3. Features must be marked as "implemented" or "specified but not yet
+   implemented." Silence means "this works" — and that claim must be
+   testable by running the section's example program.
+
+**rules.md** must satisfy:
+1. Add rule: "No feature is complete until a program using it compiles, links,
+   runs, and produces the correct output." Unit tests are necessary but not
+   sufficient.
+2. Add rule: "Stubs must emit diagnostics, not silent defaults." A closure
+   lowering that returns unit must emit `error: closures are not yet
+   implemented`. A `?` operator that returns Unknown must emit `error: error
+   propagation is not yet implemented`. A stub that compiles silently is
+   indistinguishable from a working implementation.
+3. Add rule: "Exit criteria written by the implementer must be validated
+   against the proof program before the wave is marked complete."
+
+**repository-layout.md** must satisfy:
+1. The `tests/e2e/` directory must be populated from Wave 01 onward. Every
+   compiler package that affects program behavior must have a corresponding
+   e2e fixture program.
+2. Proof programs are checked-in `.fuse` source files with expected outputs,
+   not programmatically generated Go test scaffolding. Anyone must be able to
+   read `tests/e2e/pattern_match.fuse` and understand what the compiler is
+   supposed to do.
+
+**learning-log.md** (this document) must satisfy:
+1. Before closing any wave, ask: "Could this wave's implementation produce a
+   learning-log entry if audited independently?" If yes, the wave is not
+   ready to close.
+
+**Cascading effects**:
+All existing waves (00–16) must be retroactively checked against these
+requirements. The e2e test suite must be expanded with proof programs for every
+implemented feature. The AST-to-HIR bridge must propagate checker types so that
+proof programs for generics, pattern matching, closures, and error propagation
+can actually execute.
+
+**Architectural lesson**:
+Documents that govern construction without governing proof are aspirational,
+not normative. A running program is the only proof that a feature exists. A
+passing unit test proves the component works in isolation. A passing e2e test
+proves the compiler works for the user.
+
+**Verification**:
+This entry is verified when: (a) rules.md, implementation-plan.md,
+language-guide.md, and repository-layout.md are updated to include the
+requirements above; (b) every implemented feature has a proof program in
+`tests/e2e/`; and (c) the e2e suite fails if any feature is reverted to a
+stub.

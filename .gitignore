@@ -1,0 +1,36 @@
+# Build artifacts
+/fuse
+/fuse.exe
+/build/
+
+# Stage 2 build output
+stage2/build/*
+!stage2/build/.gitkeep
+
+# Runtime build output
+runtime/*.o
+runtime/*.a
+runtime/*.so
+runtime/*.dylib
+runtime/*.dll
+
+# Generated C
+*.gen.c
+*.gen.h
+
+# Go
+/vendor/
+
+# Test artifacts
+*.test
+*.test.exe
+coverage.out
+
+# Editor and OS noise
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

@@ -1,0 +1,16 @@
+import core.result.Result;
+import full.chan.Chan;
+
+@value struct WorkItem {
+	id: U64,
+	payload: String,
+}
+
+pub fn process(queue: mutref Chan[WorkItem]) -> Result[(), String] {
+	let item = queue.recv()?;
+	let upper = item.payload.toUpper();
+	spawn fn() {
+		log(upper);
+	};
+	return Ok(());
+}

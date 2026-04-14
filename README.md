@@ -1,72 +1,66 @@
-# Fuse4 Documentation Transfer Set
+# Fuse
 
-This directory contains the replacement foundational documents for the next
-production attempt of Fuse.
+> A compiled systems language pursuing memory safety, concurrency safety, and developer experience as a first-class constraint.
 
-These files are intentionally isolated from the top-level `docs/` tree because
-this repository (`fuse3`) will be archived as historical reference. The files
-under `docs/meta/fuse4/docs/` are the transfer-ready documents intended to be
-copied into the new repository.
+Fuse is a systems language built around explicit ownership, deterministic destruction, visible mutation, explicit error propagation, and structured concurrency. The active bootstrap compiler in this repository is Stage 1: a Go compiler that lowers Fuse to C11 and then relies on the system C toolchain to produce native binaries. The long-term target remains Stage 2: Fuse compiling itself, after which the bootstrap path is retired.
 
-## Transfer Rule
+## What This Repository Is
 
-When the new repository is created, copy the files from:
+This repository is `fuse3`, the third production attempt of Fuse. It contains:
 
-`docs/meta/fuse4/docs/`
+- the Stage 1 Go compiler under [`compiler/`](docs/repository-layout.md)
+- the bootstrap C runtime under [`runtime/`](docs/repository-layout.md)
+- the Fuse standard library under [`stdlib/`](docs/repository-layout.md)
+- the self-hosted Stage 2 compiler source under [`stage2/`](docs/repository-layout.md)
+- the full documentation and learning record for this attempt under [`docs/`](docs)
 
-to:
+This repository is intended to become the archival reference for attempt 3.
 
-`docs/`
+## Language Direction
 
-in the new repository.
+Fuse is built around three non-negotiable goals.
 
-The current top-level `docs/` tree in `fuse3` remains the archival record of
-attempt 3 and must not be overwritten by these rewrite documents.
+1. Memory safety without a garbage collector.
+2. Concurrency safety without a borrow checker.
+3. Developer experience where important effects remain visible at the call site.
 
-## Scope
+That means no hidden tracing collector, no hidden async runtime, no invisible mutation, and no silent unsafe escape hatches.
 
-This subtree contains the five foundational documents required by
-`docs/meta/document_writing_brief.md`:
+## Status
 
-1. `language-guide.md`
-2. `implementation-plan.md`
-3. `repository-layout.md`
-4. `rules.md`
-5. `learning-log.md`
+Fuse is pre-1.0. The language design for this attempt is substantially specified, but the compiler remains under construction. The main architectural and implementation record for `fuse3` lives in the top-level docs set:
 
-## Fixed Bootstrap Model
+- [docs/language-guide.md](docs/language-guide.md)
+- [docs/implementation-plan.md](docs/implementation-plan.md)
+- [docs/repository-layout.md](docs/repository-layout.md)
+- [docs/rules.md](docs/rules.md)
+- [docs/learning-log.md](docs/learning-log.md)
 
-The rewrite preserves the project's non-negotiable bootstrap architecture:
+## Fuse4 Transfer Set
 
-- Stage 1 compiler: Go
-- Runtime: C
-- Stage 2 compiler: Fuse
-- Terminal goal: Fuse compiles itself, after which Go and C are retired from
-  the compiler implementation path
+This repository also contains the rewritten foundational documents for the next production attempt, `fuse4`. Those files live under:
 
-The current C11 backend is a bootstrap strategy, not the terminal architecture.
+- [docs/meta/fuse4/README.md](docs/meta/fuse4/README.md)
+- [docs/meta/fuse4/docs/language-guide.md](docs/meta/fuse4/docs/language-guide.md)
+- [docs/meta/fuse4/docs/implementation-plan.md](docs/meta/fuse4/docs/implementation-plan.md)
+- [docs/meta/fuse4/docs/repository-layout.md](docs/meta/fuse4/docs/repository-layout.md)
+- [docs/meta/fuse4/docs/rules.md](docs/meta/fuse4/docs/rules.md)
+- [docs/meta/fuse4/docs/learning-log.md](docs/meta/fuse4/docs/learning-log.md)
 
-## Naming Conventions For The New Plan
+Those files are the transfer-ready seed documents for the next repository. The current top-level docs remain the historical record of `fuse3`.
 
-The new implementation plan uses explicit, globally unique identifiers.
+## If You Are Reading This Repo Cold
 
-- Wave headings:
-  `Wave 04: Type Checking and Semantic Validation`
-- Phase headings:
-  `Phase 03: Trait Resolution and Bound Dispatch [W04-P03-TRAIT-RESOLUTION]`
-- Task headings:
-  `Task 01: Register All Function Types Before Body Checking [W04-P03-T01-FN-TYPE-REGISTRATION]`
+Read in this order:
 
-Numbers are zero-padded to keep references stable and sortable.
+1. [docs/rules.md](docs/rules.md)
+2. [docs/implementation-plan.md](docs/implementation-plan.md)
+3. [docs/language-guide.md](docs/language-guide.md)
+4. [docs/repository-layout.md](docs/repository-layout.md)
+5. [docs/learning-log.md](docs/learning-log.md)
 
-## Authoring Order
+If your goal is the next repository rather than archival study of this one, start with the `fuse4` transfer set under [docs/meta/fuse4](docs/meta/fuse4).
 
-Documents must be authored in this order:
+## License
 
-1. `language-guide.md`
-2. `implementation-plan.md`
-3. `repository-layout.md`
-4. `rules.md`
-5. `learning-log.md`
-
-That order is mandatory because the later documents depend on the earlier ones.
+See [LICENSE](LICENSE).

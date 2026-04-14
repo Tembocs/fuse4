@@ -5,7 +5,7 @@ import core.result.Result;
 
 /// Spawn a new thread running the given function.
 /// The function takes ownership of its closure environment.
-pub fn spawn(f: owned fn()) -> Result[(), String] {
+pub fn thread_spawn(f: owned Fn) -> Result[(), String] {
     unsafe {
         extern fn fuse_rt_thread_spawn(f: Ptr[U8], arg: Ptr[U8]) -> I32;
         let err = fuse_rt_thread_spawn(f, Ptr.null());

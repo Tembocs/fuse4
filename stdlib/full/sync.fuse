@@ -102,11 +102,9 @@ impl Shared {
         Shared { value: value, mutex: Mutex.new() }
     }
 
-    /// Lock and return a mutable reference to the inner value.
-    /// The caller must call unlock() when done.
-    pub fn lock(mutref self) -> mutref T {
+    /// Lock the shared value. The caller must call unlock() when done.
+    pub fn lock(mutref self) {
         self.mutex.lock();
-        mutref self.value
     }
 
     /// Unlock the shared value.

@@ -40,7 +40,7 @@ impl Option {
     }
 
     /// Map a function over the contained value.
-    pub fn map(owned self, f: fn(T) -> U) -> Option {
+    pub fn map(owned self, f: Fn) -> Option {
         match self {
             Some(v) => Some(f(v)),
             None => None,

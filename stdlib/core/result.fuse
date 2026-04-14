@@ -40,7 +40,7 @@ impl Result {
     }
 
     /// Map a function over the Ok value.
-    pub fn map(owned self, f: fn(T) -> U) -> Result {
+    pub fn map(owned self, f: Fn) -> Result {
         match self {
             Ok(v) => Ok(f(v)),
             Err(e) => Err(e),

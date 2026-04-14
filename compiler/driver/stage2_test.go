@@ -44,7 +44,7 @@ func TestStage2MirrorsStage1Architecture(t *testing.T) {
 	required := map[string][]string{
 		"token.fuse":     {"TokenKind", "Token", "Span"},
 		"lexer.fuse":     {"Lexer", "tokenize"},
-		"ast.fuse":       {"File", "Item", "Expr", "Stmt"},
+		"ast.fuse":       {"AstFile", "AstItem", "AstExpr", "AstStmt"},
 		"parser.fuse":    {"Parser", "parse_file"},
 		"resolve.fuse":   {"Symbol", "Scope", "Resolver"},
 		"typetable.fuse": {"TypeId", "TypeKind", "TypeTable"},

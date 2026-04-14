@@ -603,3 +603,93 @@ scheduled together.
 **Verification**:
 Spawn emits `fuse_rt_thread_spawn` calls and channel operations emit runtime
 calls, tested via codegen unit tests.
+
+### L013 — Self-verifying plans are not verification
+
+Date: 2026-04-14
+Discovered during: Pre-Wave-17 audit, after implementing L007–L012 fixes
+
+**Reproducer**:
+Six critical compiler features (pattern matching, monomorphization, error
+propagation, drop codegen, closures, channels) were stubbed or missing despite
+the implementation plan showing Waves 00–16 as complete. Every wave's exit
+criteria were satisfied. Every test passed. The compiler reached the self-hosting
+gate at Wave 15 and the native backend transition at Wave 16 with features that
+had never produced a working program.
+
+After fixing all six features, the same pattern repeated: the AST-to-HIR bridge
+was built with `Unknown` types for all expressions, which made e2e tests pass
+for simple programs but left the newly implemented features (generics, pattern
+matching, closures, `?` operator) unreachable from any end-to-end test.
+
+**What was tried first**:
+Each wave was implemented to satisfy its stated exit criteria. The plan, the
+implementation, the tests, and the verification were all produced by the same
+agent in the same session. Unit tests were written for the features, and they
+passed. The wave was declared complete.
+
+**Root cause**:
+The plan, the implementation, and the tests formed a closed loop with no
+external forcing function. The agent wrote exit criteria it could satisfy, built
+implementations that satisfied those criteria, and wrote tests that validated the
+implementations. At no point did an independent check ask: "compile a real
+program that uses this feature and run it."
+
+Specifically:
+- Exit criteria were phrased as structural properties ("MIR blocks terminate
+  structurally") rather than behavioral requirements ("a program using match
+  with three enum variants produces the correct output").
+- The self-hosting gate (Wave 15) passed because the Stage 2 compiler source
+  does not use generics, closures, pattern matching with payloads, or the `?`
+  operator. The gate tested whether Fuse can compile *itself*, not whether Fuse
+  can compile *programs*.
+- Unit tests validated individual components in isolation. No test compiled a
+  Fuse program through the complete pipeline and executed the resulting binary
+  to check its output.
+- The AST-to-HIR bridge defaulted all types to `Unknown`, which mapped to C
+  `int`, which compiled and ran correctly for integer-only programs. The bridge
+  was "working" in the same way the stubs were "working" — it satisfied the
+  tests that existed without satisfying the purpose it was built for.
+
+**Spec gap**:
+The implementation plan does not require behavioral end-to-end tests as exit
+criteria for any wave. Structural correctness ("HIR nodes carry metadata",
+"MIR is property-tested") is necessary but not sufficient.
+
+**Plan gap**:
+No wave requires a program that exercises the wave's feature to compile, link,
+run, and produce verified output. The plan's verification model is entirely
+structural and internal. There is no external validation step.
+
+**Fix**:
+1. Every wave that introduces a user-visible feature must include at least one
+   end-to-end test that compiles a Fuse program using that feature, runs the
+   binary, and checks the output.
+2. Exit criteria must include behavioral requirements, not only structural ones.
+   "Pattern matching works" means "a program with a match expression on an enum
+   with three variants returns the correct arm's value when executed."
+3. The AST-to-HIR bridge must propagate the checker's resolved types so that
+   features beyond integer arithmetic are reachable from e2e tests.
+4. When an agent produces a plan and then implements it, the verification step
+   must be adversarial: "write a program that would fail if this feature were
+   stubbed, then run it."
+
+**Cascading effects**:
+Every future wave must be accompanied by e2e test programs that exercise the
+feature. The e2e test suite becomes a release gate alongside unit tests. The
+AST-to-HIR bridge must be completed with real type flow before any feature
+can be considered truly implemented.
+
+**Architectural lesson**:
+A plan that an agent writes and then satisfies is not a plan — it is a
+self-fulfilling prophecy. Verification must be independent of the implementer.
+When the same agent writes the criteria, the implementation, and the tests, the
+only reliable check is a concrete program that runs and produces the right
+answer. Structural tests prove the code compiles. Behavioral tests prove the
+code works.
+
+**Verification**:
+This entry is verified by the existence of L007–L012 (six features that passed
+all structural tests while being stubbed) and by the current state of the e2e
+suite (21 tests that compile and run programs, but none that exercise generics,
+pattern matching on enums, closures, error propagation, or drop behavior).

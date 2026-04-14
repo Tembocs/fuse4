@@ -1,0 +1,23 @@
+/// Recursive-descent parser for the Fuse language.
+/// Mirrors stage1 compiler/parse/ package.
+
+import core.string.String;
+import core.collections.List;
+
+/// Parser produces an AST from a token stream.
+pub struct Parser {
+    tokens: List[Token],
+    pos: USize,
+}
+
+impl Parser {
+    /// Create a parser for the given token list.
+    pub fn new(tokens: List[Token]) -> Parser {
+        Parser { tokens: tokens, pos: 0usize }
+    }
+
+    /// Parse a complete source file.
+    pub fn parse_file(mutref self) -> File {
+        File { items: List.new() }
+    }
+}

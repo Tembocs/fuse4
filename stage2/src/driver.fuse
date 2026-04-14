@@ -1,0 +1,38 @@
+/// Compiler driver: orchestrates the full pipeline.
+/// Mirrors stage1 compiler/driver/ package.
+///
+/// Pipeline: parse → resolve → check → lower → codegen → compile → link
+
+import core.string.String;
+import core.collections.Map;
+import core.result.Result;
+import full.io;
+
+/// BuildOptions configures a compilation.
+pub struct BuildOptions {
+    output_path: String,
+    optimize: Bool,
+    debug: Bool,
+}
+
+/// BuildResult holds the outcome of a compilation.
+pub struct BuildResult {
+    c_source: String,
+    output_path: String,
+    success: Bool,
+}
+
+/// Build runs the full compiler pipeline.
+pub fn build(sources: Map[String, String], opts: BuildOptions) -> BuildResult {
+    // Phase 1: Parse all modules.
+    // Phase 2: Resolve names.
+    // Phase 3: Type check.
+    // Phase 4: Lower to MIR.
+    // Phase 5: Emit C11.
+    // Phase 6: Compile and link.
+    BuildResult {
+        c_source: String.new(),
+        output_path: opts.output_path,
+        success: true,
+    }
+}

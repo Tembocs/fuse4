@@ -1,0 +1,29 @@
+/// HIR nodes with semantic metadata.
+/// Mirrors stage1 compiler/hir/ package.
+/// HIR is distinct from AST (syntax) and MIR (low-level).
+
+import core.string.String;
+import core.collections.List;
+
+/// OwnershipKind classifies ownership context.
+pub enum OwnershipKind {
+    Value,
+    Ref,
+    MutRef,
+    Owned,
+    Moved,
+}
+
+/// Metadata carries semantic annotations on each HIR node.
+pub struct Metadata {
+    type_id: TypeId,
+    ownership: OwnershipKind,
+    diverges: Bool,
+}
+
+/// Function is an HIR function with typed metadata.
+pub struct Function {
+    name: String,
+    public: Bool,
+    return_type: TypeId,
+}

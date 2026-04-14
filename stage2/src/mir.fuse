@@ -1,0 +1,57 @@
+/// MIR: block-based mid-level IR for backends.
+/// Mirrors stage1 compiler/mir/ package.
+
+import core.string.String;
+import core.collections.List;
+
+/// LocalId identifies a local variable or temporary.
+pub type LocalId = I32;
+
+/// BlockId identifies a basic block.
+pub type BlockId = I32;
+
+/// InstrKind classifies an MIR instruction.
+pub enum InstrKind {
+    Const,
+    Copy,
+    Move,
+    Borrow,
+    Drop,
+    Call,
+    FieldRead,
+    FieldAddr,
+    Index,
+    BinOp,
+    UnaryOp,
+    Tuple,
+    StructInit,
+    EnumInit,
+}
+
+/// TermKind classifies a block terminator.
+pub enum TermKind {
+    None,
+    Return,
+    Goto,
+    Branch,
+    Diverge,
+}
+
+/// Instr is a single MIR instruction.
+pub struct Instr {
+    kind: InstrKind,
+    dest: LocalId,
+}
+
+/// Block is a basic block with instructions and a terminator.
+pub struct Block {
+    id: BlockId,
+    instrs: List[Instr],
+    sealed: Bool,
+}
+
+/// MirFunction is the MIR representation of a function.
+pub struct MirFunction {
+    name: String,
+    blocks: List[Block],
+}

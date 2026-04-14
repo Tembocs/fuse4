@@ -1,0 +1,63 @@
+/// AST node types for the Fuse parser.
+/// Mirrors stage1 compiler/ast/ package.
+/// AST is syntax-only: no resolved symbols, types, or metadata.
+
+import core.string.String;
+import core.collections.List;
+import core.option.Option;
+
+/// File is the root AST node for a source file.
+pub struct File {
+    items: List[Item],
+}
+
+/// Item is a top-level declaration.
+pub enum Item {
+    Import { path: List[String], alias: Option[String] },
+    Fn { public: Bool, name: String, body: Option[Block] },
+    Struct { public: Bool, name: String, fields: List[Field] },
+    Enum { public: Bool, name: String, variants: List[Variant] },
+    Trait { public: Bool, name: String, items: List[Item] },
+    Impl { target: String, items: List[Item] },
+    Const { public: Bool, name: String },
+    TypeAlias { public: Bool, name: String },
+    Extern { public: Bool, name: String },
+}
+
+/// Field is a named struct field.
+pub struct Field {
+    name: String,
+}
+
+/// Variant is an enum variant.
+pub struct Variant {
+    name: String,
+}
+
+/// Block is a sequence of statements with an optional tail expression.
+pub struct Block {
+    stmts: List[Stmt],
+}
+
+/// Stmt is a statement.
+pub enum Stmt {
+    Let { name: String },
+    Var { name: String },
+    Expr,
+}
+
+/// Expr is an expression node.
+pub enum Expr {
+    Literal { value: String },
+    Ident { name: String },
+    Binary { op: String },
+    Unary { op: String },
+    Call,
+    Field { name: String },
+    Block,
+    If,
+    Match,
+    Return,
+    Break,
+    Continue,
+}

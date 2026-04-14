@@ -1,0 +1,67 @@
+/// Name resolution and module graph.
+/// Mirrors stage1 compiler/resolve/ package.
+
+import core.string.String;
+import core.collections.List;
+import core.collections.Map;
+
+/// ModulePath is a dot-separated module identifier.
+pub struct ModulePath {
+    segments: List[String],
+}
+
+/// Symbol represents a resolved name binding.
+pub struct Symbol {
+    name: String,
+    kind: SymbolKind,
+    public: Bool,
+    module: ModulePath,
+}
+
+/// SymbolKind classifies what a symbol refers to.
+pub enum SymbolKind {
+    Func,
+    Struct,
+    Enum,
+    EnumVariant,
+    Trait,
+    Const,
+    TypeAlias,
+    ExternFn,
+    Param,
+    Local,
+    Import,
+    Module,
+}
+
+/// Scope maps names to symbols with parent-chain lookup.
+pub struct Scope {
+    symbols: Map[String, Symbol],
+}
+
+impl Scope {
+    /// Create a new empty scope.
+    pub fn new() -> Scope {
+        Scope { symbols: Map.new() }
+    }
+
+    /// Define a symbol in this scope.
+    pub fn define(mutref self, sym: Symbol) -> Bool {
+        true
+    }
+
+    /// Look up a name in this scope and parents.
+    pub fn lookup(ref self, name: ref String) -> Option[Symbol] {
+        self.symbols.get(ref name)
+    }
+}
+
+/// Resolver performs name resolution across a module graph.
+pub struct Resolver {
+}
+
+impl Resolver {
+    /// Run all resolution phases.
+    pub fn resolve(mutref self) {
+    }
+}

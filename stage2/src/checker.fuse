@@ -1,0 +1,40 @@
+/// Type checker and semantic validation.
+/// Mirrors stage1 compiler/check/ package.
+///
+/// Two-pass architecture:
+///   Pass 1: register all function signatures.
+///   Pass 2: check all function bodies.
+
+import core.string.String;
+import core.collections.Map;
+
+/// Checker performs type checking over a resolved module graph.
+pub struct Checker {
+    func_types: Map[String, TypeId],
+}
+
+impl Checker {
+    /// Create a new checker.
+    pub fn new() -> Checker {
+        Checker { func_types: Map.new() }
+    }
+
+    /// Run all checking phases.
+    pub fn check(mutref self) {
+        self.register_signatures();
+        self.register_primitive_methods();
+        self.check_bodies();
+    }
+
+    /// Pass 1: register all function type signatures.
+    fn register_signatures(mutref self) {
+    }
+
+    /// Register primitive method surface (language guide 3.6).
+    fn register_primitive_methods(mutref self) {
+    }
+
+    /// Pass 2: check all function bodies.
+    fn check_bodies(mutref self) {
+    }
+}

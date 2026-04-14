@@ -1,0 +1,32 @@
+/// C11 backend: emits C source from MIR.
+/// Mirrors stage1 compiler/codegen/ package.
+
+import core.string.String;
+import core.collections.List;
+
+/// Emitter generates C11 source from MIR functions.
+pub struct Emitter {
+    output: String,
+}
+
+impl Emitter {
+    /// Create a new emitter.
+    pub fn new() -> Emitter {
+        Emitter { output: String.new() }
+    }
+
+    /// Emit C11 for a list of MIR functions.
+    pub fn emit(mutref self, functions: ref List[MirFunction]) -> String {
+        self.output
+    }
+}
+
+/// Sanitize a name for use as a C identifier.
+pub fn sanitize_ident(name: ref String) -> String {
+    name.clone()
+}
+
+/// Mangle a module-qualified name.
+pub fn mangle_name(module: ref String, name: ref String) -> String {
+    name.clone()
+}

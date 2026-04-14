@@ -1,0 +1,60 @@
+/// Interned type identity via TypeId.
+/// Mirrors stage1 compiler/typetable/ package.
+
+import core.string.String;
+import core.collections.List;
+
+/// TypeId is a handle into the TypeTable.
+pub type TypeId = I32;
+
+/// TypeKind classifies the shape of a type.
+pub enum TypeKind {
+    Unknown,
+    Unit,
+    Bool,
+    Char,
+    Int,
+    Uint,
+    Float,
+    Tuple,
+    Array,
+    Slice,
+    Ptr,
+    Ref,
+    MutRef,
+    Struct,
+    Enum,
+    Func,
+    GenericParam,
+    Never,
+}
+
+/// TypeEntry is the interned data for a single type.
+pub struct TypeEntry {
+    kind: TypeKind,
+    name: String,
+    module: String,
+    bit_size: I32,
+}
+
+/// TypeTable is the global canonical type store.
+pub struct TypeTable {
+    entries: List[TypeEntry],
+}
+
+impl TypeTable {
+    /// Create a new type table with all primitives registered.
+    pub fn new() -> TypeTable {
+        TypeTable { entries: List.new() }
+    }
+
+    /// Intern a type entry and return its TypeId.
+    pub fn intern(mutref self, entry: TypeEntry) -> TypeId {
+        0i32
+    }
+
+    /// Look up a primitive type by name.
+    pub fn lookup_primitive(ref self, name: ref String) -> TypeId {
+        0i32
+    }
+}

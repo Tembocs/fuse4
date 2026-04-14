@@ -1,0 +1,50 @@
+/// Token kinds and token representation for the Fuse lexer.
+/// Mirrors stage1 compiler/lex/token.go.
+
+import core.string.String;
+
+/// TokenKind classifies a lexical token.
+pub enum TokenKind {
+    EOF,
+    Illegal,
+    Ident,
+    IntLit,
+    FloatLit,
+    StringLit,
+    RawStringLit,
+    // Keywords
+    KwFn, KwPub, KwStruct, KwEnum, KwTrait, KwImpl,
+    KwFor, KwIn, KwWhile, KwLoop, KwIf, KwElse, KwMatch,
+    KwReturn, KwLet, KwVar, KwMove, KwRef, KwMutref, KwOwned,
+    KwUnsafe, KwSpawn, KwChan, KwImport, KwAs, KwMod, KwUse,
+    KwType, KwConst, KwStatic, KwExtern, KwBreak, KwContinue,
+    KwWhere, KwSelfType, KwSelfValue, KwTrue, KwFalse, KwNone, KwSome,
+    // Operators
+    Plus, Minus, Star, Slash, Percent,
+    Amp, Pipe, Caret, Tilde, Shl, Shr,
+    Bang, AmpAmp, PipePipe,
+    EqEq, BangEq, Lt, Gt, LtEq, GtEq,
+    // Assignment
+    Eq, PlusEq, MinusEq, StarEq, SlashEq, PercentEq,
+    AmpEq, PipeEq, CaretEq, ShlEq, ShrEq,
+    // Punctuation
+    LParen, RParen, LBrack, RBrack, LBrace, RBrace,
+    Comma, Semi, Colon, Dot, Arrow, FatArrow,
+    ColonColon, At, Hash, Question, QDot,
+}
+
+/// Span records a source location range.
+pub struct Span {
+    file: String,
+    start_line: I32,
+    start_col: I32,
+    end_line: I32,
+    end_col: I32,
+}
+
+/// Token is a single lexical token with its source span.
+pub struct Token {
+    kind: TokenKind,
+    literal: String,
+    span: Span,
+}

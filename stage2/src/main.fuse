@@ -1,0 +1,40 @@
+/// Stage 2 compiler entry point.
+/// This is the Fuse compiler written in Fuse.
+
+import core.string.String;
+import core.collections.Map;
+import full.io;
+import full.os;
+
+/// Main entry point for the stage2 compiler.
+pub fn main() -> I32 {
+    let argc = os.argc();
+    if argc < 2i32 {
+        io.eprintln("fuse: no input files");
+        return 1i32;
+    }
+
+    let arg1 = os.argv(1i32);
+    match arg1 {
+        Some(cmd) => {
+            match cmd {
+                "version" => {
+                    io.println("fuse 0.1.0-stage2");
+                    0i32
+                },
+                "help" => {
+                    io.println("Usage: fuse <command> [files...]");
+                    0i32
+                },
+                _ => {
+                    io.eprintln("fuse: unknown command");
+                    1i32
+                },
+            }
+        },
+        None => {
+            io.eprintln("fuse: no command");
+            1i32
+        },
+    }
+}

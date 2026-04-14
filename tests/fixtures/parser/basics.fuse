@@ -1,0 +1,25 @@
+import core.result.Result;
+import full.chan.Chan as Ch;
+
+@value struct WorkItem {
+	id: U64,
+	payload: String,
+}
+
+enum Option[T] {
+	Some(T),
+	None,
+}
+
+trait Display {
+	fn fmt(ref self, f: mutref Formatter);
+}
+
+pub fn process(queue: mutref Chan[WorkItem]) -> Result[(), String] {
+	let item = queue.recv()?;
+	return Ok(());
+}
+
+const MAX: I32 = 100;
+
+extern fn puts(s: Ptr[U8]) -> I32;

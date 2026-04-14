@@ -1,0 +1,10 @@
+(File
+  (Import core.result.Result)
+  (Import full.chan.Chan as Ch)
+  (@value Struct WorkItem id payload)
+  (Enum Option Some None)
+  (Trait Display)
+  (pub Fn process(queue) -> Result[(), String])
+  (Const MAX)
+  (Extern puts)
+)

@@ -152,9 +152,14 @@ func (l *Lowerer) lowerIdent(n *hir.IdentExpr) mir.LocalId {
 	if id, ok := l.vars[n.Name]; ok {
 		return id
 	}
-	// Unknown ident — create a temp with unknown value.
+	// Top-level reference (function name, constant, etc.) — emit with mangled name
+	// to match codegen's MangleName convention.
 	dest := l.b.NewTemp(n.Meta().Type)
-	l.b.EmitConst(dest, n.Meta().Type, n.Name)
+	mangledName := n.Name
+	if n.Name != "main" {
+		mangledName = "Fuse_" + n.Name
+	}
+	l.b.EmitConst(dest, n.Meta().Type, mangledName)
 	return dest
 }
 
@@ -213,7 +218,21 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 		return dest
 	}
 
-	callee := l.lowerExpr(n.Callee)
+	// Direct function call: emit callee name as a const reference.
+	var callee mir.LocalId
+	if ident, ok := n.Callee.(*hir.IdentExpr); ok {
+		// Direct call by name — emit the mangled function name.
+		callee = l.b.NewTemp(l.Types.Unknown)
+		mangledName := ident.Name
+		if mangledName != "main" {
+			if _, isLocal := l.vars[ident.Name]; !isLocal {
+				mangledName = "Fuse_" + ident.Name
+			}
+		}
+		l.b.EmitConst(callee, l.Types.Unknown, mangledName)
+	} else {
+		callee = l.lowerExpr(n.Callee)
+	}
 	var args []mir.LocalId
 	for _, a := range n.Args {
 		args = append(args, l.lowerExpr(a))

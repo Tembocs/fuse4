@@ -79,21 +79,34 @@ func Build(opts BuildOptions) *BuildResult {
 	for _, key := range graph.Order {
 		mod := graph.Modules[key]
 		for _, item := range mod.File.Items {
-			fn, ok := item.(*ast.FnDecl)
-			if !ok || fn.Body == nil {
+			switch it := item.(type) {
+			case *ast.FnDecl:
+				if it.Body == nil {
+					continue
+				}
+				hirFn := buildHIRFunction(hirBuilder, tt, it)
+				_, liveDiags := liveness.RunAll(hirFn)
+				result.Errors = append(result.Errors, liveDiags...)
+				mirFn := lowerer.LowerFunction(hirFn)
+				mirFunctions = append(mirFunctions, mirFn)
+
+			case *ast.ImplDecl:
+				for _, implItem := range it.Items {
+					fn, ok := implItem.(*ast.FnDecl)
+					if !ok || fn.Body == nil {
+						continue
+					}
+					hirFn := buildHIRFunction(hirBuilder, tt, fn)
+					_, liveDiags := liveness.RunAll(hirFn)
+					result.Errors = append(result.Errors, liveDiags...)
+					mirFn := lowerer.LowerFunction(hirFn)
+					mirFunctions = append(mirFunctions, mirFn)
+				}
+
+			case *ast.ExternFnDecl:
+				// Extern functions have no body — skip.
 				continue
 			}
-
-			// Build a minimal HIR function for lowering.
-			hirFn := buildHIRFunction(hirBuilder, tt, fn)
-
-			// Run liveness (exactly once per function, Rule 3.8).
-			_, liveDiags := liveness.RunAll(hirFn)
-			result.Errors = append(result.Errors, liveDiags...)
-
-			// Lower to MIR.
-			mirFn := lowerer.LowerFunction(hirFn)
-			mirFunctions = append(mirFunctions, mirFn)
 		}
 	}
 	result.Errors = append(result.Errors, lowerer.Errors...)
@@ -153,21 +166,37 @@ func compileAndLink(cSource string, opts BuildOptions) error {
 		return fmt.Errorf("write C source: %w", err)
 	}
 
-	// Compile.
-	objPath := filepath.Join(tmpDir, "output.o")
-	cfg := cc.BuildConfig{
-		Optimize:  opts.Optimize,
-		Debug:     opts.Debug,
-		OutputObj: objPath,
-	}
-	if err := toolchain.Compile(cPath, cfg); err != nil {
-		return err
-	}
-
 	// Discover runtime library.
 	rtLib := opts.RuntimeLib
 	if rtLib == "" {
 		rtLib = FindRuntimeLib()
+	}
+
+	// Derive runtime include directory from the runtime library path.
+	var includeDirs []string
+	if rtLib != "" {
+		rtDir := filepath.Dir(rtLib)
+		includeDir := filepath.Join(rtDir, "include")
+		if _, err := os.Stat(includeDir); err == nil {
+			includeDirs = append(includeDirs, includeDir)
+		}
+		// Also try sibling include directory (runtime/include from runtime/libfuse_rt.a).
+		parentInclude := filepath.Join(filepath.Dir(rtDir), "runtime", "include")
+		if _, err := os.Stat(parentInclude); err == nil {
+			includeDirs = append(includeDirs, parentInclude)
+		}
+	}
+
+	// Compile.
+	objPath := filepath.Join(tmpDir, "output.o")
+	cfg := cc.BuildConfig{
+		Optimize:    opts.Optimize,
+		Debug:       opts.Debug,
+		OutputObj:   objPath,
+		IncludeDirs: includeDirs,
+	}
+	if err := toolchain.Compile(cPath, cfg); err != nil {
+		return err
 	}
 
 	// Link.
@@ -199,28 +228,10 @@ func FindRuntimeLib() string {
 	return ""
 }
 
-// buildHIRFunction creates a minimal HIR function from an AST FnDecl.
-// This is a simplified bridge — full AST-to-HIR lowering comes in later refinement.
+// buildHIRFunction converts an AST FnDecl into a full HIR Function using the ast2hir bridge.
 func buildHIRFunction(b *hir.Builder, tt *typetable.TypeTable, fn *ast.FnDecl) *hir.Function {
-	var params []hir.Param
-	for _, p := range fn.Params {
-		params = append(params, hir.Param{
-			Span: p.Span,
-			Name: p.Name,
-			Type: tt.Unknown,
-		})
-	}
-
-	retType := tt.Unit
-	body := b.BlockExpr(fn.Body.Span, nil, nil, retType)
-
-	return &hir.Function{
-		Name:       fn.Name,
-		Public:     fn.Public,
-		Params:     params,
-		ReturnType: retType,
-		Body:       body,
-	}
+	bridge := &ast2hir{b: b, tt: tt}
+	return bridge.lowerFunction(fn)
 }
 
 func hasErrors(errs []diagnostics.Diagnostic) bool {

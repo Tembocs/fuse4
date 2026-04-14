@@ -46,15 +46,19 @@ func probeVersion(path string) string {
 
 // BuildConfig holds compilation and linking options.
 type BuildConfig struct {
-	Optimize  bool
-	Debug     bool
-	OutputExe string // output executable path
-	OutputObj string // output object path (for compile-only)
+	Optimize    bool
+	Debug       bool
+	OutputExe   string   // output executable path
+	OutputObj   string   // output object path (for compile-only)
+	IncludeDirs []string // -I directories for header search
 }
 
 // CompileArgs returns the arguments to compile a C source file to an object.
 func (tc *Toolchain) CompileArgs(src string, cfg BuildConfig) []string {
 	args := []string{"-c", "-std=c11", "-Wall"}
+	for _, dir := range cfg.IncludeDirs {
+		args = append(args, "-I", dir)
+	}
 	if cfg.Optimize {
 		args = append(args, "-O2")
 	} else {

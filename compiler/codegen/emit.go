@@ -15,9 +15,10 @@ type Emitter struct {
 	Errors    []diagnostics.Diagnostic
 	DropTypes map[typetable.TypeId]bool // types with Drop trait implementations
 
-	out     strings.Builder
-	indent  int
-	emitted map[typetable.TypeId]bool // types already emitted
+	out        strings.Builder
+	indent     int
+	emitted    map[typetable.TypeId]bool   // types already emitted
+	constNames map[mir.LocalId]string       // locals assigned a const function name
 }
 
 // NewEmitter creates an emitter for the given type table.
@@ -142,7 +143,15 @@ func (e *Emitter) emitFnForwardDecl(fn *mir.Function) {
 	e.writeln("")
 }
 
+func (e *Emitter) calleeName(id mir.LocalId) string {
+	if name, ok := e.constNames[id]; ok {
+		return name
+	}
+	return e.localName(id)
+}
+
 func (e *Emitter) emitFunction(fn *mir.Function) {
+	e.constNames = make(map[mir.LocalId]string)
 	retC := e.returnTypeC(fn.ReturnType)
 	nameC := MangleName("", fn.Name)
 	paramsC := e.paramsC(fn.Params)
@@ -198,6 +207,13 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 		if e.isUnit(instr.Type) {
 			return // unit erasure
 		}
+		// Track function name references for direct call emission.
+		// If the value looks like a function name (starts with uppercase or Fuse_),
+		// record it so InstrCall can emit a direct call instead of going through a local.
+		if instr.Type == e.Types.Unknown && isFuncRef(instr.Value) {
+			e.constNames[instr.Dest] = instr.Value
+			return // skip emitting the assignment; call will use the name directly
+		}
 		e.writeIndent()
 		e.writef("%s = %s;", dest, e.constValue(instr.Value, instr.Type))
 		e.writeln("")
@@ -242,13 +258,14 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 		// Types without Drop: no-op.
 
 	case mir.InstrCall:
+		callee := e.calleeName(instr.Callee)
 		if e.isUnit(instr.Type) {
 			e.writeIndent()
-			e.writef("%s(%s);", e.localName(instr.Callee), e.argsC(instr.Args))
+			e.writef("%s(%s);", callee, e.argsC(instr.Args))
 			e.writeln("")
 		} else {
 			e.writeIndent()
-			e.writef("%s = %s(%s);", dest, e.localName(instr.Callee), e.argsC(instr.Args))
+			e.writef("%s = %s(%s);", dest, callee, e.argsC(instr.Args))
 			e.writeln("")
 		}
 
@@ -412,6 +429,17 @@ func (e *Emitter) constValue(value string, ty typetable.TypeId) string {
 		return fmt.Sprintf("(%s){0}", MangleType(e.Types, ty))
 	}
 	return value
+}
+
+// isFuncRef returns true if a const value looks like a function reference
+// (mangled identifier like Fuse_add or fuse_rt_*), not a numeric literal
+// or language constant.
+func isFuncRef(value string) bool {
+	if len(value) == 0 {
+		return false
+	}
+	// Function references from the lowerer start with "Fuse_" or "fuse_rt_".
+	return strings.HasPrefix(value, "Fuse_") || strings.HasPrefix(value, "fuse_rt_") || value == "main"
 }
 
 // --- output helpers ---

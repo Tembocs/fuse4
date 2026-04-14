@@ -47,7 +47,11 @@ func SanitizeIdent(name string) string {
 
 // MangleName produces a module-qualified C identifier from a module path and
 // item name. Same-name items from different modules must not collide.
+// The "main" function is emitted as "main" (C entry point).
 func MangleName(module, name string) string {
+	if name == "main" {
+		return "main"
+	}
 	if module == "" {
 		return "Fuse_" + SanitizeIdent(name)
 	}

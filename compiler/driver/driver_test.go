@@ -111,6 +111,78 @@ func TestBuildResultHasCSource(t *testing.T) {
 	}
 }
 
+func TestBuildFunctionWithLet(t *testing.T) {
+	result := Build(BuildOptions{
+		Sources: map[string][]byte{
+			"main": []byte("fn main() { let x = 42; }"),
+		},
+	})
+	for _, e := range result.Errors {
+		t.Errorf("error: %s", e)
+	}
+	if !strings.Contains(result.CSource, "42") {
+		t.Errorf("C source should contain literal 42\n%s", result.CSource)
+	}
+}
+
+func TestBuildFunctionWithReturn(t *testing.T) {
+	result := Build(BuildOptions{
+		Sources: map[string][]byte{
+			"main": []byte("fn get() -> I32 { return 1; }"),
+		},
+	})
+	for _, e := range result.Errors {
+		t.Errorf("error: %s", e)
+	}
+	if !strings.Contains(result.CSource, "return") {
+		t.Errorf("C source should contain return\n%s", result.CSource)
+	}
+}
+
+func TestBuildFunctionWithArithmetic(t *testing.T) {
+	result := Build(BuildOptions{
+		Sources: map[string][]byte{
+			"main": []byte("fn add() { let x = 1 + 2; }"),
+		},
+	})
+	for _, e := range result.Errors {
+		t.Errorf("error: %s", e)
+	}
+	if !strings.Contains(result.CSource, "+") {
+		t.Errorf("C source should contain +\n%s", result.CSource)
+	}
+}
+
+func TestBuildFunctionWithIfElse(t *testing.T) {
+	result := Build(BuildOptions{
+		Sources: map[string][]byte{
+			"main": []byte("fn test() { if true { let x = 1; } }"),
+		},
+	})
+	for _, e := range result.Errors {
+		t.Errorf("error: %s", e)
+	}
+	hasIf := strings.Contains(result.CSource, "if")
+	hasGoto := strings.Contains(result.CSource, "goto")
+	if !hasIf && !hasGoto {
+		t.Errorf("C source should contain if or goto\n%s", result.CSource)
+	}
+}
+
+func TestBuildFunctionWithCall(t *testing.T) {
+	result := Build(BuildOptions{
+		Sources: map[string][]byte{
+			"main": []byte("fn foo() { } fn main() { foo(); }"),
+		},
+	})
+	for _, e := range result.Errors {
+		t.Errorf("error: %s", e)
+	}
+	if !strings.Contains(result.CSource, "foo") {
+		t.Errorf("C source should contain foo\n%s", result.CSource)
+	}
+}
+
 func TestBuildDiagnosticsAreCollected(t *testing.T) {
 	// An import referencing a nonexistent module should produce a resolve error.
 	result := Build(BuildOptions{

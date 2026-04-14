@@ -85,7 +85,7 @@ func TestMangleNameModuleQualified(t *testing.T) {
 
 func TestMangleNameNoModule(t *testing.T) {
 	got := MangleName("", "main")
-	if got != "Fuse_main" {
+	if got != "main" {
 		t.Errorf("got %q", got)
 	}
 }
@@ -404,7 +404,7 @@ func TestHelloWorldOutput(t *testing.T) {
 	if !strings.Contains(src, "#include") {
 		t.Error("output should have includes")
 	}
-	if !strings.Contains(src, "int32_t Fuse_main(void)") {
+	if !strings.Contains(src, "int32_t main(void)") {
 		t.Errorf("output should have main function declaration\n%s", src)
 	}
 	if !strings.Contains(src, "return _l0") {

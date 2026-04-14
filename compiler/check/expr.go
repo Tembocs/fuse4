@@ -7,12 +7,20 @@ import (
 	"github.com/Tembocs/fuse4/compiler/typetable"
 )
 
-// checkExpr type-checks an expression and returns its type.
+// checkExpr type-checks an expression, records the resolved type, and returns it.
 func (c *Checker) checkExpr(expr ast.Expr) typetable.TypeId {
 	if expr == nil {
 		return c.Types.Unit
 	}
+	ty := c.resolveExpr(expr)
+	if c.ExprTypes != nil {
+		c.ExprTypes[expr] = ty
+	}
+	return ty
+}
 
+// resolveExpr dispatches to the appropriate type-checking method for the expression.
+func (c *Checker) resolveExpr(expr ast.Expr) typetable.TypeId {
 	switch e := expr.(type) {
 	case *ast.LiteralExpr:
 		return c.checkLiteral(e)

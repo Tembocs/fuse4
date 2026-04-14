@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -v \"//\")",
+      "Bash(grep -n \"UnsafeExpr\\\\|ChannelExpr\" /d/fuse/fuse4/compiler/ast/*.go)",
+      "Bash(grep -n \"String\\\\|\\\\\"core\\\\\", \\\\\"String\\\\\"\" /d/fuse/fuse4/compiler/codegen/*.go /d/fuse/fuse4/compiler/check/*.go)",
+      "Bash(find /d/fuse/fuse4/compiler/check -name \"*.go\" -exec grep -l \"Closure\\\\|closure\" {} \\\\;)",
+      "Bash(wc -l /d/fuse/fuse4/compiler/hir/*.go)",
+      "Bash(grep -n \"InstrEnum\\\\|EnumInit\" /d/fuse/fuse4/compiler/mir/*.go)",
+      "Bash(grep -n \"PatternDesc\\\\|pattern\\\\|Pattern\" /d/fuse/fuse4/compiler/hir/*.go)"
+    ]
+  }
+}

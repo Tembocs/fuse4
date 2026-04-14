@@ -84,7 +84,7 @@ func Build(opts BuildOptions) *BuildResult {
 				if it.Body == nil {
 					continue
 				}
-				hirFn := buildHIRFunction(hirBuilder, tt, it)
+				hirFn := buildHIRFunction(hirBuilder, tt, checker, mod.Path.String(), it)
 				_, liveDiags := liveness.RunAll(hirFn)
 				result.Errors = append(result.Errors, liveDiags...)
 				mirFn := lowerer.LowerFunction(hirFn)
@@ -96,7 +96,7 @@ func Build(opts BuildOptions) *BuildResult {
 					if !ok || fn.Body == nil {
 						continue
 					}
-					hirFn := buildHIRFunction(hirBuilder, tt, fn)
+					hirFn := buildHIRFunction(hirBuilder, tt, checker, mod.Path.String(), fn)
 					_, liveDiags := liveness.RunAll(hirFn)
 					result.Errors = append(result.Errors, liveDiags...)
 					mirFn := lowerer.LowerFunction(hirFn)
@@ -229,8 +229,8 @@ func FindRuntimeLib() string {
 }
 
 // buildHIRFunction converts an AST FnDecl into a full HIR Function using the ast2hir bridge.
-func buildHIRFunction(b *hir.Builder, tt *typetable.TypeTable, fn *ast.FnDecl) *hir.Function {
-	bridge := &ast2hir{b: b, tt: tt}
+func buildHIRFunction(b *hir.Builder, tt *typetable.TypeTable, checker *check.Checker, modPath string, fn *ast.FnDecl) *hir.Function {
+	bridge := &ast2hir{b: b, tt: tt, checker: checker, modPath: modPath}
 	return bridge.lowerFunction(fn)
 }
 

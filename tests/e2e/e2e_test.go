@@ -164,6 +164,89 @@ var e2eTests = []e2eTest{
 		WantExit: 3,
 	},
 
+	// ===== Typed Parameters =====
+	{
+		Name: "typed_params_i32",
+		Source: `
+			fn square(x: I32) -> I32 { return x * x; }
+			fn main() -> I32 { return square(6); }
+		`,
+		WantExit: 36,
+	},
+	{
+		Name: "multi_param_types",
+		Source: `
+			fn pick(a: I32, b: I32, sel: Bool) -> I32 {
+				if sel { return a; }
+				return b;
+			}
+			fn main() -> I32 { return pick(10, 20, true); }
+		`,
+		WantExit: 10,
+	},
+
+	// ===== Recursion =====
+	{
+		Name: "recursion_factorial",
+		Source: `
+			fn fact(n: I32) -> I32 {
+				if n { return n * fact(n - 1); }
+				return 1;
+			}
+			fn main() -> I32 { return fact(5); }
+		`,
+		// 5! = 120
+		WantExit: 120,
+	},
+
+	// ===== Nested Control Flow =====
+	{
+		Name: "nested_if",
+		Source: `
+			fn classify(x: I32) -> I32 {
+				if x {
+					if x - 1 { return 2; }
+					return 1;
+				}
+				return 0;
+			}
+			fn main() -> I32 { return classify(5); }
+		`,
+		WantExit: 2,
+	},
+	{
+		Name: "while_with_function_call",
+		Source: `
+			fn dec(x: I32) -> I32 { return x - 1; }
+			fn main() -> I32 {
+				var n = 10;
+				var sum = 0;
+				while n {
+					sum = sum + n;
+					n = dec(n);
+				}
+				return sum;
+			}
+		`,
+		// 10+9+8+...+1 = 55
+		WantExit: 55,
+	},
+
+	// ===== Assignment Operators =====
+	{
+		Name: "variable_mutation",
+		Source: `
+			fn main() -> I32 {
+				var x = 10;
+				x = x + 5;
+				x = x * 2;
+				return x;
+			}
+		`,
+		// (10+5)*2 = 30
+		WantExit: 30,
+	},
+
 	// ===== Compilation Errors =====
 	{
 		Name:      "parse_error",

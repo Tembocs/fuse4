@@ -20,6 +20,10 @@ type Checker struct {
 	Graph  *resolve.ModuleGraph
 	Errors []diagnostics.Diagnostic
 
+	// ExprTypes maps AST expression pointers to their resolved TypeId.
+	// Populated during body checking for use by the AST-to-HIR bridge.
+	ExprTypes map[ast.Expr]typetable.TypeId
+
 	// funcTypes maps function names (module-qualified) to their function TypeId.
 	funcTypes map[string]typetable.TypeId
 
@@ -57,6 +61,7 @@ func NewChecker(types *typetable.TypeTable, graph *resolve.ModuleGraph) *Checker
 	return &Checker{
 		Types:        types,
 		Graph:        graph,
+		ExprTypes:    make(map[ast.Expr]typetable.TypeId),
 		funcTypes:    make(map[string]typetable.TypeId),
 		structFields: make(map[typetable.TypeId][]fieldInfo),
 		traitMethods: make(map[string][]methodSig),
@@ -239,4 +244,46 @@ func typeExprName(te ast.TypeExpr) string {
 		return pt.Segments[len(pt.Segments)-1]
 	}
 	return ""
+}
+
+// --- public accessors for the AST-to-HIR bridge ---
+
+// FuncType returns the function TypeId for a qualified name, or InvalidTypeId.
+func (c *Checker) FuncType(name string) typetable.TypeId {
+	if fty, ok := c.funcTypes[name]; ok {
+		return fty
+	}
+	return typetable.InvalidTypeId
+}
+
+// FieldType returns the type of a named field on a struct type.
+func (c *Checker) FieldType(structTy typetable.TypeId, fieldName string) typetable.TypeId {
+	for _, f := range c.structFields[structTy] {
+		if f.Name == fieldName {
+			return f.Type
+		}
+	}
+	return typetable.InvalidTypeId
+}
+
+// FuncReturnType returns the return type of a named function.
+func (c *Checker) FuncReturnType(qualifiedName string) typetable.TypeId {
+	if fty, ok := c.funcTypes[qualifiedName]; ok {
+		fe := c.Types.Get(fty)
+		if fe.Kind == typetable.KindFunc {
+			return fe.ReturnType
+		}
+	}
+	return c.Types.Unknown
+}
+
+// FuncParamTypes returns the parameter types of a named function.
+func (c *Checker) FuncParamTypes(qualifiedName string) []typetable.TypeId {
+	if fty, ok := c.funcTypes[qualifiedName]; ok {
+		fe := c.Types.Get(fty)
+		if fe.Kind == typetable.KindFunc {
+			return fe.Fields
+		}
+	}
+	return nil
 }

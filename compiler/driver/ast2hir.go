@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Tembocs/fuse4/compiler/ast"
+	"github.com/Tembocs/fuse4/compiler/check"
 	"github.com/Tembocs/fuse4/compiler/diagnostics"
 	"github.com/Tembocs/fuse4/compiler/hir"
 	"github.com/Tembocs/fuse4/compiler/lex"
@@ -14,24 +15,73 @@ func zeroSpan() diagnostics.Span { return diagnostics.Span{} }
 
 // ast2hir converts AST nodes to HIR nodes using the Builder.
 type ast2hir struct {
-	b  *hir.Builder
-	tt *typetable.TypeTable
+	b       *hir.Builder
+	tt      *typetable.TypeTable
+	checker *check.Checker
+	modPath string // current module path for qualified name lookups
+}
+
+// typeOf returns the checker's resolved type for an AST expression, falling
+// back to Unknown if the checker is unavailable or the expression was not recorded.
+func (a *ast2hir) typeOf(e ast.Expr) typetable.TypeId {
+	if a.checker != nil && a.checker.ExprTypes != nil {
+		if ty, ok := a.checker.ExprTypes[e]; ok {
+			return ty
+		}
+	}
+	return a.tt.Unknown
+}
+
+// valueTypeOf returns the checker's resolved type, but substitutes Unknown for
+// Unit or Never. The lowerer allocates result temps for control-flow expressions
+// (if, match, loop, block); if those temps have Unit/Never type, codegen omits
+// their declarations, which breaks dead-code references. Using Unknown keeps
+// the temp declared as a harmless int placeholder.
+func (a *ast2hir) valueTypeOf(e ast.Expr) typetable.TypeId {
+	ty := a.typeOf(e)
+	if ty == a.tt.Unit || ty == a.tt.Never {
+		return a.tt.Unknown
+	}
+	return ty
+}
+
+// typeExprString extracts the simple type name from an AST type expression.
+func typeExprString(te ast.TypeExpr) string {
+	if te == nil {
+		return ""
+	}
+	if pt, ok := te.(*ast.PathType); ok && len(pt.Segments) > 0 {
+		return pt.Segments[len(pt.Segments)-1]
+	}
+	return ""
 }
 
 // lowerFunction translates an AST FnDecl into a complete HIR Function.
 func (a *ast2hir) lowerFunction(fn *ast.FnDecl) *hir.Function {
 	var params []hir.Param
 	for _, p := range fn.Params {
+		pty := a.tt.Unknown
+		if a.checker != nil {
+			pty = a.checker.Types.LookupPrimitive(typeExprString(p.Type))
+			if pty == typetable.InvalidTypeId {
+				pty = a.tt.Unknown
+			}
+		}
 		params = append(params, hir.Param{
 			Span: p.Span,
 			Name: p.Name,
-			Type: a.tt.Unknown,
+			Type: pty,
 		})
 	}
 
 	retType := a.tt.Unit
 	if fn.ReturnType != nil {
-		retType = a.tt.Unknown
+		if a.checker != nil {
+			qualName := a.modPath + "." + fn.Name
+			retType = a.checker.FuncReturnType(qualName)
+		} else {
+			retType = a.tt.Unknown
+		}
 	}
 
 	var body *hir.Block
@@ -71,7 +121,7 @@ func (a *ast2hir) lowerBlock(block *ast.BlockExpr) *hir.Block {
 
 	ty := a.tt.Unit
 	if tail != nil {
-		ty = a.tt.Unknown
+		ty = a.valueTypeOf(block.Tail)
 	}
 
 	return a.b.BlockExpr(block.Span, stmts, tail, ty)
@@ -86,17 +136,21 @@ func (a *ast2hir) lowerStmt(s ast.Stmt) hir.Stmt {
 	switch s := s.(type) {
 	case *ast.LetStmt:
 		var val hir.Expr
+		ty := a.tt.Unknown
 		if s.Value != nil {
 			val = a.lowerExpr(s.Value)
+			ty = a.typeOf(s.Value)
 		}
-		return a.b.Let(s.Span, s.Name, a.tt.Unknown, val)
+		return a.b.Let(s.Span, s.Name, ty, val)
 
 	case *ast.VarStmt:
 		var val hir.Expr
+		ty := a.tt.Unknown
 		if s.Value != nil {
 			val = a.lowerExpr(s.Value)
+			ty = a.typeOf(s.Value)
 		}
-		return a.b.Var(s.Span, s.Name, a.tt.Unknown, val)
+		return a.b.Var(s.Span, s.Name, ty, val)
 
 	case *ast.ExprStmt:
 		expr := a.lowerExpr(s.Expr)
@@ -122,10 +176,10 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 
 	switch e := e.(type) {
 	case *ast.LiteralExpr:
-		return a.b.Literal(e.Span, e.Token.Literal, a.tt.Unknown)
+		return a.b.Literal(e.Span, e.Token.Literal, a.typeOf(e))
 
 	case *ast.IdentExpr:
-		return a.b.Ident(e.Span, e.Name, a.tt.Unknown)
+		return a.b.Ident(e.Span, e.Name, a.typeOf(e))
 
 	case *ast.BinaryExpr:
 		left := a.lowerExpr(e.Left)
@@ -134,12 +188,12 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 		if op == "" {
 			op = opFromTokenKind(e.Op.Kind)
 		}
-		return a.b.Binary(e.Span, op, left, right, a.tt.Unknown)
+		return a.b.Binary(e.Span, op, left, right, a.typeOf(e))
 
 	case *ast.UnaryExpr:
 		operand := a.lowerExpr(e.Operand)
 		op := unaryOpFromToken(e.Op)
-		return a.b.Unary(e.Span, op, operand, a.tt.Unknown)
+		return a.b.Unary(e.Span, op, operand, a.typeOf(e))
 
 	case *ast.AssignExpr:
 		target := a.lowerExpr(e.Target)
@@ -156,24 +210,24 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 		for _, arg := range e.Args {
 			args = append(args, a.lowerExpr(arg))
 		}
-		return a.b.Call(e.Span, callee, args, a.tt.Unknown)
+		return a.b.Call(e.Span, callee, args, a.typeOf(e))
 
 	case *ast.IndexExpr:
 		expr := a.lowerExpr(e.Expr)
 		index := a.lowerExpr(e.Index)
-		return a.b.Index(e.Span, expr, index, a.tt.Unknown)
+		return a.b.Index(e.Span, expr, index, a.typeOf(e))
 
 	case *ast.FieldExpr:
 		expr := a.lowerExpr(e.Expr)
-		return a.b.Field(e.Span, expr, e.Name, a.tt.Unknown)
+		return a.b.Field(e.Span, expr, e.Name, a.typeOf(e))
 
 	case *ast.QDotExpr:
 		expr := a.lowerExpr(e.Expr)
-		return a.b.QDot(e.Span, expr, e.Name, a.tt.Unknown)
+		return a.b.QDot(e.Span, expr, e.Name, a.typeOf(e))
 
 	case *ast.QuestionExpr:
 		expr := a.lowerExpr(e.Expr)
-		return a.b.Question(e.Span, expr, a.tt.Unknown)
+		return a.b.Question(e.Span, expr, a.typeOf(e))
 
 	case *ast.BlockExpr:
 		return a.lowerBlock(e)
@@ -185,10 +239,11 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 		if e.Else != nil {
 			els = a.lowerExpr(e.Else)
 		}
-		return a.b.If(e.Span, cond, then, els, a.tt.Unknown)
+		return a.b.If(e.Span, cond, then, els, a.valueTypeOf(e))
 
 	case *ast.MatchExpr:
 		subject := a.lowerExpr(e.Subject)
+		subjectTy := a.typeOf(e.Subject)
 		var arms []hir.MatchArm
 		for _, arm := range e.Arms {
 			body := a.lowerExpr(arm.Body)
@@ -197,14 +252,15 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 				guard = a.lowerExpr(arm.Guard)
 			}
 			desc := patternDesc(arm.Pattern)
+			pat := a.lowerPattern(arm.Pattern, subjectTy)
 			arms = append(arms, hir.MatchArm{
-				Pattern:     &hir.WildcardPattern{},
+				Pattern:     pat,
 				PatternDesc: desc,
 				Guard:       guard,
 				Body:        body,
 			})
 		}
-		return a.b.Match(e.Span, subject, arms, a.tt.Unknown)
+		return a.b.Match(e.Span, subject, arms, a.valueTypeOf(e))
 
 	case *ast.ForExpr:
 		iter := a.lowerExpr(e.Iterable)
@@ -218,7 +274,7 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 
 	case *ast.LoopExpr:
 		body := a.lowerBlock(e.Body)
-		return a.b.Loop(e.Span, body, a.tt.Unknown)
+		return a.b.Loop(e.Span, body, a.valueTypeOf(e))
 
 	case *ast.ReturnExpr:
 		var val hir.Expr
@@ -242,7 +298,7 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 		for _, elem := range e.Elems {
 			elems = append(elems, a.lowerExpr(elem))
 		}
-		return a.b.Tuple(e.Span, elems, a.tt.Unknown)
+		return a.b.Tuple(e.Span, elems, a.typeOf(e))
 
 	case *ast.StructLitExpr:
 		var fields []hir.FieldInitHIR
@@ -252,7 +308,7 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 				Value: a.lowerExpr(f.Value),
 			})
 		}
-		return a.b.StructLit(e.Span, e.Name, fields, a.tt.Unknown)
+		return a.b.StructLit(e.Span, e.Name, fields, a.typeOf(e))
 
 	case *ast.SpawnExpr:
 		expr := a.lowerExpr(e.Expr)
@@ -261,14 +317,29 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 	case *ast.ClosureExpr:
 		var params []hir.Param
 		for _, p := range e.Params {
+			pty := a.tt.Unknown
+			if a.checker != nil {
+				pty = a.checker.Types.LookupPrimitive(typeExprString(p.Type))
+				if pty == typetable.InvalidTypeId {
+					pty = a.tt.Unknown
+				}
+			}
 			params = append(params, hir.Param{
 				Span: p.Span,
 				Name: p.Name,
-				Type: a.tt.Unknown,
+				Type: pty,
 			})
 		}
 		body := a.lowerBlock(e.Body)
-		return a.b.Closure(e.Span, params, a.tt.Unknown, body, a.tt.Unknown)
+		closureTy := a.typeOf(e)
+		retTy := a.tt.Unknown
+		if a.checker != nil && closureTy != a.tt.Unknown {
+			ce := a.checker.Types.Get(closureTy)
+			if ce.Kind == typetable.KindFunc {
+				retTy = ce.ReturnType
+			}
+		}
+		return a.b.Closure(e.Span, params, retTy, body, closureTy)
 
 	default:
 		return nil
@@ -344,6 +415,30 @@ func opFromTokenKind(kind lex.TokenKind) string {
 		return "mutref"
 	default:
 		return fmt.Sprintf("op(%d)", kind)
+	}
+}
+
+// lowerPattern translates an AST pattern into an HIR pattern, using the
+// subject's resolved type to populate type annotations.
+func (a *ast2hir) lowerPattern(p ast.Pattern, subjectTy typetable.TypeId) hir.Pattern {
+	if p == nil {
+		return &hir.WildcardPattern{}
+	}
+	switch p := p.(type) {
+	case *ast.WildcardPat:
+		return &hir.WildcardPattern{}
+	case *ast.LitPat:
+		return &hir.LiteralPattern{Value: p.Value, Type: subjectTy}
+	case *ast.BindPat:
+		return &hir.BindPattern{Name: p.Name, Type: subjectTy}
+	case *ast.ConstructorPat:
+		var args []hir.Pattern
+		for _, arg := range p.Args {
+			args = append(args, a.lowerPattern(arg, a.tt.Unknown))
+		}
+		return &hir.ConstructorPattern{Name: p.Name, Args: args}
+	default:
+		return &hir.WildcardPattern{}
 	}
 }
 

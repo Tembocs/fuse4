@@ -1,66 +1,66 @@
 # Fuse
 
-> A compiled systems language pursuing memory safety, concurrency safety, and developer experience as a first-class constraint.
+> A compiled systems programming language focused on memory safety, concurrency safety, and developer experience as a first-class constraint.
 
-Fuse is a systems language built around explicit ownership, deterministic destruction, visible mutation, explicit error propagation, and structured concurrency. The active bootstrap compiler in this repository is Stage 1: a Go compiler that lowers Fuse to C11 and then relies on the system C toolchain to produce native binaries. The long-term target remains Stage 2: Fuse compiling itself, after which the bootstrap path is retired.
+Fuse is a statically typed systems language designed for programs that need
+predictable behavior, explicit control, and readable semantics. It aims to
+provide memory safety without a garbage collector, concurrency safety without a
+borrow checker, and APIs whose important effects remain visible at the call
+site.
 
-## What This Repository Is
+Fuse uses ownership, deterministic destruction, explicit borrowing, and
+structured control over mutation and error propagation. There is no hidden
+runtime model for ordinary code, no tracing collector, and no requirement to
+understand invisible effects before reading a function call.
 
-This repository is `fuse3`, the third production attempt of Fuse. It contains:
+## What Fuse Emphasizes
 
-- the Stage 1 Go compiler under [`compiler/`](docs/repository-layout.md)
-- the bootstrap C runtime under [`runtime/`](docs/repository-layout.md)
-- the Fuse standard library under [`stdlib/`](docs/repository-layout.md)
-- the self-hosted Stage 2 compiler source under [`stage2/`](docs/repository-layout.md)
-- the full documentation and learning record for this attempt under [`docs/`](docs)
+- memory safety through ownership analysis and deterministic destruction
+- concurrency through channels, ranked synchronization, and explicit thread
+  creation
+- explicit mutation through `mutref` and related ownership forms
+- explicit error propagation through `Result`, `Option`, and `?`
+- explicit unsafe boundaries through `unsafe {}` and raw pointer types
 
-This repository is intended to become the archival reference for attempt 3.
+The language is intended to make the cost and effect of an operation easier to
+see from the code itself. Mutation, fallibility, and unsafe behavior should not
+be hidden behind ordinary-looking calls.
 
-## Language Direction
+## Language Shape
 
-Fuse is built around three non-negotiable goals.
+Fuse is compiled ahead of time to native code. The language includes:
 
-1. Memory safety without a garbage collector.
-2. Concurrency safety without a borrow checker.
-3. Developer experience where important effects remain visible at the call site.
+- structs, enums, traits, and impl blocks
+- generic functions and generic types
+- deterministic ownership and borrowing
+- pattern matching and expression-oriented control flow
+- channels and shared synchronization primitives for concurrency
+- a small explicit unsafe boundary for FFI and raw pointer work
 
-That means no hidden tracing collector, no hidden async runtime, no invisible mutation, and no silent unsafe escape hatches.
+The current compiler architecture uses a bootstrap path in which a Go compiler
+lowers Fuse through C11 before producing native binaries. The long-term goal is
+a self-hosted Fuse compiler that no longer depends on that bootstrap backend.
+
+## Project Documents
+
+The project is organized around five foundational documents:
+
+- `language-guide.md` — the language specification
+- `implementation-plan.md` — the build plan from bootstrap to self-hosting
+- `repository-layout.md` — the repository structure and placement rules
+- `rules.md` — contributor and agent discipline rules
+- `learning-log.md` — accumulated lessons from bugs, design gaps, and fixes
+
+Those documents define both the language and the implementation discipline. If
+the implementation and the documents disagree, the documents are the place to
+start.
 
 ## Status
 
-Fuse is pre-1.0. The language design for this attempt is substantially specified, but the compiler remains under construction. The main architectural and implementation record for `fuse3` lives in the top-level docs set:
+Fuse is pre-1.0 and should be treated as an active language and compiler effort,
+not a stable production platform. The language direction is deliberate, but the
+implementation is still evolving and the compiler remains under active
+construction.
 
-- [docs/language-guide.md](docs/language-guide.md)
-- [docs/implementation-plan.md](docs/implementation-plan.md)
-- [docs/repository-layout.md](docs/repository-layout.md)
-- [docs/rules.md](docs/rules.md)
-- [docs/learning-log.md](docs/learning-log.md)
-
-## Fuse4 Transfer Set
-
-This repository also contains the rewritten foundational documents for the next production attempt, `fuse4`. Those files live under:
-
-- [docs/meta/fuse4/README.md](docs/meta/fuse4/README.md)
-- [docs/meta/fuse4/docs/language-guide.md](docs/meta/fuse4/docs/language-guide.md)
-- [docs/meta/fuse4/docs/implementation-plan.md](docs/meta/fuse4/docs/implementation-plan.md)
-- [docs/meta/fuse4/docs/repository-layout.md](docs/meta/fuse4/docs/repository-layout.md)
-- [docs/meta/fuse4/docs/rules.md](docs/meta/fuse4/docs/rules.md)
-- [docs/meta/fuse4/docs/learning-log.md](docs/meta/fuse4/docs/learning-log.md)
-
-Those files are the transfer-ready seed documents for the next repository. The current top-level docs remain the historical record of `fuse3`.
-
-## If You Are Reading This Repo Cold
-
-Read in this order:
-
-1. [docs/rules.md](docs/rules.md)
-2. [docs/implementation-plan.md](docs/implementation-plan.md)
-3. [docs/language-guide.md](docs/language-guide.md)
-4. [docs/repository-layout.md](docs/repository-layout.md)
-5. [docs/learning-log.md](docs/learning-log.md)
-
-If your goal is the next repository rather than archival study of this one, start with the `fuse4` transfer set under [docs/meta/fuse4](docs/meta/fuse4).
-
-## License
-
-See [LICENSE](LICENSE).
+If you are approaching the project for the first time, read `rules.md` first,
+then `implementation-plan.md`, then `language-guide.md`.

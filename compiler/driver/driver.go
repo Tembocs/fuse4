@@ -26,6 +26,7 @@ type BuildOptions struct {
 	Sources    map[string][]byte // module path → source bytes
 	OutputPath string            // output executable path
 	RuntimeLib string            // path to libfuse_rt.a
+	Backend    string            // "c11" (default) or "native"
 	Optimize   bool
 	Debug      bool
 }
@@ -97,11 +98,23 @@ func Build(opts BuildOptions) *BuildResult {
 	}
 	result.Errors = append(result.Errors, lowerer.Errors...)
 
-	// Phase 5: Codegen — emit C11.
-	emitter := codegen.NewEmitter(tt)
-	cSource := emitter.Emit(mirFunctions)
+	// Phase 5: Codegen — emit via selected backend.
+	backendTarget := opts.Backend
+	if backendTarget == "" {
+		backendTarget = "c11"
+	}
+	backend := codegen.NewBackend(codegen.BackendConfig{
+		Target:   backendTarget,
+		Types:    tt,
+		Optimize: opts.Optimize,
+	})
+	output, err := backend.Emit(mirFunctions)
+	if err != nil {
+		result.Errors = append(result.Errors, diagnostics.Errorf(
+			diagnostics.Span{}, "codegen: %s", err))
+	}
+	cSource := string(output)
 	result.CSource = cSource
-	result.Errors = append(result.Errors, emitter.Errors...)
 	if hasErrors(result.Errors) {
 		return result
 	}

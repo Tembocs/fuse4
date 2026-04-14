@@ -1,0 +1,12 @@
+/// Runtime bridge: compiler intrinsics.
+/// This file contains unsafe primitives used by the compiler.
+
+/// Return the size of a type in bytes.
+pub fn size_of[T]() -> USize {
+    0usize
+}
+
+/// Return the alignment of a type in bytes.
+pub fn align_of[T]() -> USize {
+    0usize
+}

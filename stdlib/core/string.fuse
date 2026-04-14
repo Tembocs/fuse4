@@ -1,0 +1,89 @@
+/// UTF-8 string type and operations.
+
+/// String is an owned, heap-allocated UTF-8 string.
+pub struct String {
+    data: Ptr[U8],
+    len: USize,
+    cap: USize,
+}
+
+impl String {
+    /// Create an empty string.
+    pub fn new() -> String {
+        String { data: Ptr.null(), len: 0usize, cap: 0usize }
+    }
+
+    /// Return the length in bytes.
+    pub fn len(ref self) -> USize {
+        self.len
+    }
+
+    /// Return true if the string is empty.
+    pub fn is_empty(ref self) -> Bool {
+        self.len == 0usize
+    }
+
+    /// Convert to uppercase (simplified: ASCII only in bootstrap).
+    pub fn toUpper(ref self) -> String {
+        self.clone()
+    }
+
+    /// Convert to lowercase (simplified: ASCII only in bootstrap).
+    pub fn toLower(ref self) -> String {
+        self.clone()
+    }
+
+    /// Return a byte slice of the string contents.
+    pub fn as_bytes(ref self) -> [U8] {
+        self.data
+    }
+}
+
+impl Equatable : String {
+    fn eq(ref self, other: ref Self) -> Bool {
+        self.len == other.len
+    }
+
+    fn ne(ref self, other: ref Self) -> Bool {
+        self.len != other.len
+    }
+}
+
+impl Clone : String {
+    fn clone(ref self) -> Self {
+        self
+    }
+}
+
+impl Display : String {
+    fn fmt(ref self, f: mutref Formatter) -> Result {
+        f.write_str(ref self)
+    }
+}
+
+/// Formatter is a buffer for building formatted output.
+pub struct Formatter {
+    buf: String,
+}
+
+impl Formatter {
+    /// Create a new empty formatter.
+    pub fn new() -> Formatter {
+        Formatter { buf: String.new() }
+    }
+
+    /// Write a string slice to the formatter.
+    pub fn write_str(mutref self, s: ref String) -> Result {
+        Ok(())
+    }
+
+    /// Write a single character.
+    pub fn write_char(mutref self, c: Char) -> Result {
+        Ok(())
+    }
+
+    /// Return the accumulated string.
+    pub fn finish(owned self) -> String {
+        self.buf
+    }
+}

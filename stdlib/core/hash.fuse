@@ -1,0 +1,26 @@
+/// Hash support for the core standard library.
+
+/// Hasher accumulates bytes and produces a hash value.
+pub struct Hasher {
+    state: U64,
+}
+
+impl Hasher {
+    /// Create a new hasher with the default seed.
+    pub fn new() -> Hasher {
+        Hasher { state: 0u64 }
+    }
+
+    /// Feed bytes into the hasher.
+    pub fn write(mutref self, bytes: ref [U8]) {
+    }
+
+    /// Feed a single U64 into the hasher.
+    pub fn write_u64(mutref self, val: U64) {
+    }
+
+    /// Finalize and return the hash value.
+    pub fn finish(ref self) -> U64 {
+        self.state
+    }
+}

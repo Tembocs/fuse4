@@ -1,0 +1,49 @@
+/// Option type for representing optional values.
+
+/// Option represents an optional value: either Some(T) or None.
+pub enum Option[T] {
+    Some(T),
+    None,
+}
+
+impl Option {
+    /// Return true if the option contains a value.
+    pub fn is_some(ref self) -> Bool {
+        match self {
+            Some(_) => true,
+            None => false,
+        }
+    }
+
+    /// Return true if the option is None.
+    pub fn is_none(ref self) -> Bool {
+        match self {
+            Some(_) => false,
+            None => true,
+        }
+    }
+
+    /// Unwrap the value, panicking if None.
+    pub fn unwrap(owned self) -> T {
+        match self {
+            Some(v) => v,
+            None => panic("called unwrap on None"),
+        }
+    }
+
+    /// Return the contained value or a default.
+    pub fn unwrap_or(owned self, default: T) -> T {
+        match self {
+            Some(v) => v,
+            None => default,
+        }
+    }
+
+    /// Map a function over the contained value.
+    pub fn map(owned self, f: fn(T) -> U) -> Option {
+        match self {
+            Some(v) => Some(f(v)),
+            None => None,
+        }
+    }
+}

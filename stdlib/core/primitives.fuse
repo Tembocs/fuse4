@@ -1,0 +1,33 @@
+/// Primitive type methods and aliases.
+/// These are registered by the checker before body checking (language guide 3.6).
+
+/// Int is the platform word-sized signed integer, equivalent to ISize.
+pub type Int = ISize;
+
+/// Float is the default floating-point type, equivalent to F64.
+pub type Float = F64;
+
+/// Built-in integer methods (registered by the compiler):
+///   toFloat() -> F64
+///   toInt() -> I64
+///   abs() -> Self
+///   min(Self) -> Self
+///   max(Self) -> Self
+
+/// Built-in float methods (registered by the compiler):
+///   toInt() -> I64
+///   isNan() -> Bool
+///   isInfinite() -> Bool
+///   floor() -> Self
+///   ceil() -> Self
+///   sqrt() -> Self
+///   abs() -> Self
+
+/// Built-in Char methods (registered by the compiler):
+///   toInt() -> U32
+///   isLetter() -> Bool
+///   isDigit() -> Bool
+///   isWhitespace() -> Bool
+
+/// Built-in Bool methods (registered by the compiler):
+///   not() -> Bool

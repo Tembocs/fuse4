@@ -1,0 +1,18 @@
+/// Runtime bridge: panic and abort.
+/// This file contains unsafe calls to the bootstrap runtime.
+
+/// Panic with a message. Does not return.
+pub fn panic(message: ref String) {
+    unsafe {
+        extern fn fuse_rt_panic(message: Ptr[U8]);
+        fuse_rt_panic(message.as_bytes().data)
+    }
+}
+
+/// Abort without a message. Does not return.
+pub fn abort() {
+    unsafe {
+        extern fn fuse_rt_abort();
+        fuse_rt_abort()
+    }
+}

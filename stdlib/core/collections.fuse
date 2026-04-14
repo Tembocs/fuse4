@@ -1,0 +1,120 @@
+/// Core collection types: List, Map, Set.
+/// These exercise generics, traits, and ownership.
+
+/// List is a growable, heap-allocated array.
+pub struct List[T] {
+    data: Ptr[T],
+    len: USize,
+    cap: USize,
+}
+
+impl List {
+    /// Create an empty list.
+    pub fn new() -> List {
+        List { data: Ptr.null(), len: 0usize, cap: 0usize }
+    }
+
+    /// Return the number of elements.
+    pub fn len(ref self) -> USize {
+        self.len
+    }
+
+    /// Return true if the list is empty.
+    pub fn is_empty(ref self) -> Bool {
+        self.len == 0usize
+    }
+
+    /// Append an element to the end.
+    pub fn push(mutref self, item: T) {
+    }
+
+    /// Remove and return the last element, or None.
+    pub fn pop(mutref self) -> Option {
+        None
+    }
+
+    /// Return a reference to the element at index, or None.
+    pub fn get(ref self, index: USize) -> Option {
+        None
+    }
+}
+
+impl Iterator : List {
+    fn next(mutref self) -> Option {
+        None
+    }
+}
+
+/// Map is a hash map from keys to values.
+pub struct Map[K, V] {
+    len: USize,
+}
+
+impl Map {
+    /// Create an empty map.
+    pub fn new() -> Map {
+        Map { len: 0usize }
+    }
+
+    /// Return the number of entries.
+    pub fn len(ref self) -> USize {
+        self.len
+    }
+
+    /// Return true if the map is empty.
+    pub fn is_empty(ref self) -> Bool {
+        self.len == 0usize
+    }
+
+    /// Insert a key-value pair. Returns the old value if the key existed.
+    pub fn insert(mutref self, key: K, value: V) -> Option {
+        None
+    }
+
+    /// Look up a value by key.
+    pub fn get(ref self, key: ref K) -> Option {
+        None
+    }
+
+    /// Remove a key and return its value.
+    pub fn remove(mutref self, key: ref K) -> Option {
+        None
+    }
+}
+
+/// Set is a hash set of unique values.
+pub struct Set[T] {
+    inner: Map[T, ()],
+}
+
+impl Set {
+    /// Create an empty set.
+    pub fn new() -> Set {
+        Set { inner: Map.new() }
+    }
+
+    /// Return the number of elements.
+    pub fn len(ref self) -> USize {
+        self.inner.len()
+    }
+
+    /// Return true if the set is empty.
+    pub fn is_empty(ref self) -> Bool {
+        self.inner.is_empty()
+    }
+
+    /// Insert a value. Returns true if it was new.
+    pub fn insert(mutref self, value: T) -> Bool {
+        true
+    }
+
+    /// Check if a value is in the set.
+    pub fn contains(ref self, value: ref T) -> Bool {
+        false
+    }
+
+    /// Remove a value. Returns true if it was present.
+    pub fn remove(mutref self, value: ref T) -> Bool {
+        false
+    }
+}

@@ -1,0 +1,34 @@
+/// Runtime bridge: memory allocation.
+/// This file contains unsafe calls to the bootstrap runtime.
+
+/// Allocate `size` bytes of memory.
+pub fn alloc(size: USize) -> Ptr[U8] {
+    unsafe {
+        extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+        fuse_rt_mem_alloc(size)
+    }
+}
+
+/// Allocate `count * size` bytes of zeroed memory.
+pub fn alloc_zeroed(count: USize, size: USize) -> Ptr[U8] {
+    unsafe {
+        extern fn fuse_rt_mem_alloc_zeroed(count: USize, size: USize) -> Ptr[U8];
+        fuse_rt_mem_alloc_zeroed(count, size)
+    }
+}
+
+/// Reallocate memory to `new_size` bytes.
+pub fn realloc(ptr: Ptr[U8], new_size: USize) -> Ptr[U8] {
+    unsafe {
+        extern fn fuse_rt_mem_realloc(ptr: Ptr[U8], new_size: USize) -> Ptr[U8];
+        fuse_rt_mem_realloc(ptr, new_size)
+    }
+}
+
+/// Free memory.
+pub fn free(ptr: Ptr[U8]) {
+    unsafe {
+        extern fn fuse_rt_mem_free(ptr: Ptr[U8]);
+        fuse_rt_mem_free(ptr)
+    }
+}

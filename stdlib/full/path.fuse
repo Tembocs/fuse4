@@ -19,27 +19,162 @@ impl Path {
         return self.inner;
     }
 
-    /// Return the file extension, or None.
-    /// Bootstrap: stub — returns None.
+    /// Return the file extension (without the dot), or None.
+    /// Scans backwards from the end for '.' after the last separator.
     pub fn extension(ref self) -> Option[String] {
-        return None;
+        let len = self.inner.len();
+        if len == 0usize { return None; }
+        /// Find the last dot after the last separator.
+        var dot_pos: USize = len;
+        var i = len;
+        while i > 0usize {
+            i = i - 1usize;
+            let b = self.inner.byte_at(i);
+            if b == 47u8 { break; }
+            if b == 92u8 { break; }
+            if b == 46u8 {
+                dot_pos = i;
+                break;
+            }
+        }
+        if dot_pos >= len { return None; }
+        if dot_pos == 0usize { return None; }
+        /// Build the extension string from bytes after the dot.
+        let ext_len = len - dot_pos - 1usize;
+        if ext_len == 0usize { return None; }
+        var buf: Ptr[U8] = Ptr.null();
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            buf = fuse_rt_mem_alloc(ext_len);
+        }
+        var j = 0usize;
+        while j < ext_len {
+            buf[j] = self.inner.byte_at(dot_pos + 1usize + j);
+            j = j + 1usize;
+        }
+        return Some(String { data: buf, len: ext_len, cap: ext_len });
     }
 
-    /// Return the file name component, or None.
-    /// Bootstrap: stub — returns None.
+    /// Return the file name component (after the last separator), or None.
     pub fn file_name(ref self) -> Option[String] {
-        return None;
+        let len = self.inner.len();
+        if len == 0usize { return None; }
+        /// Find the last separator.
+        var sep_pos: USize = 0usize;
+        var found_sep = false;
+        var i = len;
+        while i > 0usize {
+            i = i - 1usize;
+            let b = self.inner.byte_at(i);
+            if b == 47u8 {
+                sep_pos = i;
+                found_sep = true;
+                break;
+            }
+            if b == 92u8 {
+                sep_pos = i;
+                found_sep = true;
+                break;
+            }
+        }
+        var start = 0usize;
+        if found_sep { start = sep_pos + 1usize; }
+        let name_len = len - start;
+        if name_len == 0usize { return None; }
+        var buf: Ptr[U8] = Ptr.null();
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            buf = fuse_rt_mem_alloc(name_len);
+        }
+        var j = 0usize;
+        while j < name_len {
+            buf[j] = self.inner.byte_at(start + j);
+            j = j + 1usize;
+        }
+        return Some(String { data: buf, len: name_len, cap: name_len });
     }
 
-    /// Return the parent directory, or None.
-    /// Bootstrap: stub — returns None.
+    /// Return the parent directory, or None if at root.
     pub fn parent(ref self) -> Option[Path] {
+        let len = self.inner.len();
+        if len == 0usize { return None; }
+        /// Find the last separator.
+        var i = len;
+        while i > 0usize {
+            i = i - 1usize;
+            let b = self.inner.byte_at(i);
+            if b == 47u8 {
+                if i == 0usize { return None; }
+                var buf: Ptr[U8] = Ptr.null();
+                unsafe {
+                    extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+                    buf = fuse_rt_mem_alloc(i);
+                }
+                var j = 0usize;
+                while j < i {
+                    buf[j] = self.inner.byte_at(j);
+                    j = j + 1usize;
+                }
+                return Some(Path { inner: String { data: buf, len: i, cap: i } });
+            }
+            if b == 92u8 {
+                if i == 0usize { return None; }
+                var buf: Ptr[U8] = Ptr.null();
+                unsafe {
+                    extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+                    buf = fuse_rt_mem_alloc(i);
+                }
+                var j = 0usize;
+                while j < i {
+                    buf[j] = self.inner.byte_at(j);
+                    j = j + 1usize;
+                }
+                return Some(Path { inner: String { data: buf, len: i, cap: i } });
+            }
+        }
         return None;
     }
 
-    /// Join this path with another component.
-    /// Bootstrap: stub — returns self.
+    /// Join this path with another component, inserting a separator.
     pub fn join(ref self, other: ref String) -> Path {
-        return Path { inner: self.inner };
+        let self_len = self.inner.len();
+        let other_len = other.len();
+        if self_len == 0usize {
+            return Path { inner: other.clone() };
+        }
+        if other_len == 0usize {
+            return Path { inner: self.inner.clone() };
+        }
+        /// Check if self already ends with a separator.
+        let last_byte = self.inner.byte_at(self_len - 1usize);
+        var needs_sep = true;
+        if last_byte == 47u8 { needs_sep = false; }
+        if last_byte == 92u8 { needs_sep = false; }
+        var total = self_len + other_len;
+        if needs_sep { total = total + 1usize; }
+        var buf: Ptr[U8] = Ptr.null();
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            buf = fuse_rt_mem_alloc(total);
+        }
+        /// Copy self.
+        var i = 0usize;
+        while i < self_len {
+            buf[i] = self.inner.byte_at(i);
+            i = i + 1usize;
+        }
+        /// Insert separator if needed.
+        if needs_sep {
+            buf[i] = 47u8;
+            i = i + 1usize;
+        }
+        /// Copy other.
+        var j = 0usize;
+        while j < other_len {
+            buf[i] = other.byte_at(j);
+            i = i + 1usize;
+            j = j + 1usize;
+        }
+        return Path { inner: String { data: buf, len: total, cap: total } };
     }
 }

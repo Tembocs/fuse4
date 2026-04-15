@@ -1,5 +1,5 @@
 /// Random number generation.
-/// Bootstrap: simple linear congruential generator.
+/// Uses a 64-bit xorshift algorithm (fast, good distribution).
 
 /// Random number generator state.
 pub struct Rng {
@@ -8,23 +8,63 @@ pub struct Rng {
 
 impl Rng {
     /// Create a new RNG with the given seed.
+    /// Seed must not be zero; if zero, a default seed is used.
     pub fn new(seed: U64) -> Rng {
+        if seed == 0u64 {
+            return Rng { state: 88172645463325252u64 };
+        }
         return Rng { state: seed };
     }
 
-    /// Generate the next random U64.
+    /// Create an RNG seeded from the monotonic clock.
+    pub fn from_time() -> Rng {
+        unsafe {
+            extern fn fuse_rt_time_now_ns() -> I64;
+            let ns = fuse_rt_time_now_ns();
+            let seed = ns ^ 6364136223846793005i64;
+            return Rng.new(seed);
+        }
+    }
+
+    /// Generate the next random U64 using xorshift64.
     pub fn next_u64(mutref self) -> U64 {
-        return self.state;
+        var x = self.state;
+        x = x ^ (x << 13u64);
+        x = x ^ (x >> 7u64);
+        x = x ^ (x << 17u64);
+        self.state = x;
+        return x;
     }
 
     /// Generate a random I32 in the range [0, max).
+    /// Returns 0 if max <= 0.
     pub fn next_i32(mutref self, max: I32) -> I32 {
         if max <= 0 { return 0; }
-        return 0;
+        let raw = self.next_u64();
+        /// Mask to 31 bits for positive I32 range, then modulo.
+        let positive: I32 = raw & 2147483647u64;
+        return positive % max;
     }
 
     /// Generate a random F64 in [0.0, 1.0).
     pub fn next_f64(mutref self) -> F64 {
-        return 0.0;
+        let raw = self.next_u64();
+        /// Use lower 30 bits as an integer, divide by 2^30.
+        let bits: I32 = raw & 1073741823u64;
+        let fval: F64 = bits;
+        return fval / 1073741824.0;
+    }
+
+    /// Generate a random Bool.
+    pub fn next_bool(mutref self) -> Bool {
+        let raw = self.next_u64();
+        return (raw & 1u64) == 1u64;
+    }
+
+    /// Generate a random USize in [0, max).
+    pub fn next_usize(mutref self, max: USize) -> USize {
+        if max == 0usize { return 0usize; }
+        let raw = self.next_u64();
+        return raw % max;
     }
 }

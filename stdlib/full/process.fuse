@@ -14,7 +14,14 @@ pub fn argc() -> I32 {
 
 /// Return the command-line argument at the given index, or None.
 pub fn argv(index: I32) -> Option[String] {
-    return None;
+    unsafe {
+        extern fn fuse_rt_proc_argv(index: I32) -> Ptr[U8];
+        let ptr = fuse_rt_proc_argv(index);
+        if ptr == Ptr.null() {
+            return None;
+        }
+        return Some(String.from_ptr(ptr));
+    }
 }
 
 /// Exit the process with the given exit code.
@@ -26,9 +33,14 @@ pub fn exit(code: I32) {
 }
 
 /// Spawn a new thread running the given function.
-pub fn spawn_thread(f: owned Fn) -> Result[(), String] {
+/// The function receives a null argument pointer.
+pub fn spawn_thread(f: Ptr[U8]) -> Result[(), String] {
     unsafe {
         extern fn fuse_rt_thread_spawn(f: Ptr[U8], arg: Ptr[U8]) -> I32;
+        let rc = fuse_rt_thread_spawn(f, Ptr.null());
+        if rc < 0 {
+            return Err("failed to spawn thread");
+        }
         return Ok(());
     }
 }

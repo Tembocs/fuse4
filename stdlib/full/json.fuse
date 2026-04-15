@@ -1,8 +1,11 @@
 /// JSON parsing and serialization.
-/// Bootstrap: stub implementation.
+/// Implements a recursive descent parser for JSON values.
 
 import core.result.Result;
 import core.string.String;
+import core.list.List;
+import core.map.Map;
+import core.option.Option;
 
 /// A JSON value.
 pub enum JsonValue {
@@ -10,16 +13,335 @@ pub enum JsonValue {
     Bool(Bool),
     Number(F64),
     Str(String),
+    Array(List[JsonValue]),
+    Object(Map[String, JsonValue]),
+}
+
+/// JSON parser state.
+struct Parser {
+    input: String,
+    pos: USize,
 }
 
 /// Parse a JSON string into a JsonValue.
-/// Bootstrap: stub — returns an error.
 pub fn parse(input: ref String) -> Result[JsonValue, String] {
-    return Err("json parsing not implemented in bootstrap");
+    var p = Parser { input: input.clone(), pos: 0usize };
+    p.skip_ws();
+    let result = p.parse_value();
+    return result;
+}
+
+impl Parser {
+    fn peek(ref self) -> U8 {
+        if self.pos >= self.input.len() { return 0u8; }
+        return self.input.byte_at(self.pos);
+    }
+
+    fn advance(mutref self) -> U8 {
+        if self.pos >= self.input.len() { return 0u8; }
+        let b = self.input.byte_at(self.pos);
+        self.pos = self.pos + 1usize;
+        return b;
+    }
+
+    fn skip_ws(mutref self) {
+        while self.pos < self.input.len() {
+            let b = self.input.byte_at(self.pos);
+            if b == 32u8 { self.pos = self.pos + 1usize; }
+            else { if b == 9u8 { self.pos = self.pos + 1usize; }
+            else { if b == 10u8 { self.pos = self.pos + 1usize; }
+            else { if b == 13u8 { self.pos = self.pos + 1usize; }
+            else { return; }
+            }
+            }
+            }
+        }
+    }
+
+    fn expect(mutref self, expected: U8) -> Result[(), String] {
+        if self.pos >= self.input.len() {
+            return Err("unexpected end of input");
+        }
+        let b = self.advance();
+        if b != expected {
+            return Err("unexpected character");
+        }
+        return Ok(());
+    }
+
+    fn parse_value(mutref self) -> Result[JsonValue, String] {
+        self.skip_ws();
+        if self.pos >= self.input.len() {
+            return Err("unexpected end of input");
+        }
+        let b = self.peek();
+        /// null
+        if b == 110u8 { return self.parse_null(); }
+        /// true
+        if b == 116u8 { return self.parse_true(); }
+        /// false
+        if b == 102u8 { return self.parse_false(); }
+        /// "
+        if b == 34u8 { return self.parse_string(); }
+        /// [
+        if b == 91u8 { return self.parse_array(); }
+        /// {
+        if b == 123u8 { return self.parse_object(); }
+        /// digit or -
+        if b == 45u8 { return self.parse_number(); }
+        if b >= 48u8 {
+            if b <= 57u8 { return self.parse_number(); }
+        }
+        return Err("unexpected character in JSON");
+    }
+
+    fn parse_null(mutref self) -> Result[JsonValue, String] {
+        self.advance(); /// n
+        self.advance(); /// u
+        self.advance(); /// l
+        self.advance(); /// l
+        return Ok(Null);
+    }
+
+    fn parse_true(mutref self) -> Result[JsonValue, String] {
+        self.advance(); /// t
+        self.advance(); /// r
+        self.advance(); /// u
+        self.advance(); /// e
+        return Ok(Bool(true));
+    }
+
+    fn parse_false(mutref self) -> Result[JsonValue, String] {
+        self.advance(); /// f
+        self.advance(); /// a
+        self.advance(); /// l
+        self.advance(); /// s
+        self.advance(); /// e
+        return Ok(Bool(false));
+    }
+
+    fn parse_number(mutref self) -> Result[JsonValue, String] {
+        let start = self.pos;
+        /// Optional negative sign.
+        if self.peek() == 45u8 { self.advance(); }
+        /// Integer part.
+        while self.pos < self.input.len() {
+            let b = self.peek();
+            if b >= 48u8 {
+                if b <= 57u8 { self.advance(); }
+                else { break; }
+            } else { break; }
+        }
+        /// Fractional part.
+        if self.peek() == 46u8 {
+            self.advance();
+            while self.pos < self.input.len() {
+                let b = self.peek();
+                if b >= 48u8 {
+                    if b <= 57u8 { self.advance(); }
+                    else { break; }
+                } else { break; }
+            }
+        }
+        /// Build the number from digits (simple integer parsing for bootstrap).
+        var result: F64 = 0.0;
+        var sign: F64 = 1.0;
+        var i = start;
+        if self.input.byte_at(i) == 45u8 {
+            sign = -1.0;
+            i = i + 1usize;
+        }
+        var in_frac = false;
+        var frac_div: F64 = 10.0;
+        while i < self.pos {
+            let b = self.input.byte_at(i);
+            if b == 46u8 {
+                in_frac = true;
+            } else {
+                let digit: F64 = b - 48u8;
+                if in_frac {
+                    result = result + digit / frac_div;
+                    frac_div = frac_div * 10.0;
+                } else {
+                    result = result * 10.0 + digit;
+                }
+            }
+            i = i + 1usize;
+        }
+        return Ok(Number(sign * result));
+    }
+
+    fn parse_string(mutref self) -> Result[JsonValue, String] {
+        let s = self.read_string()?;
+        return Ok(Str(s));
+    }
+
+    fn read_string(mutref self) -> Result[String, String] {
+        self.advance(); /// opening "
+        var buf: Ptr[U8] = Ptr.null();
+        var buf_len: USize = 0usize;
+        var buf_cap: USize = 0usize;
+        while self.pos < self.input.len() {
+            let b = self.advance();
+            if b == 34u8 {
+                /// closing "
+                return Ok(String { data: buf, len: buf_len, cap: buf_cap });
+            }
+            if b == 92u8 {
+                /// escape sequence
+                let esc = self.advance();
+                var ch: U8 = esc;
+                if esc == 110u8 { ch = 10u8; }
+                if esc == 116u8 { ch = 9u8; }
+                if esc == 114u8 { ch = 13u8; }
+                if esc == 34u8 { ch = 34u8; }
+                if esc == 92u8 { ch = 92u8; }
+                if esc == 47u8 { ch = 47u8; }
+                self.push_byte(mutref buf, mutref buf_len, mutref buf_cap, ch);
+            } else {
+                self.push_byte(mutref buf, mutref buf_len, mutref buf_cap, b);
+            }
+        }
+        return Err("unterminated string");
+    }
+
+    fn push_byte(mutref self, buf: mutref Ptr[U8], len: mutref USize, cap: mutref USize, b: U8) {
+        if len >= cap {
+            var new_cap = cap * 2usize;
+            if new_cap == 0usize { new_cap = 32usize; }
+            unsafe {
+                extern fn fuse_rt_mem_realloc(ptr: Ptr[U8], size: USize) -> Ptr[U8];
+                buf = fuse_rt_mem_realloc(buf, new_cap);
+            }
+            cap = new_cap;
+        }
+        buf[len] = b;
+        len = len + 1usize;
+    }
+
+    fn parse_array(mutref self) -> Result[JsonValue, String] {
+        self.advance(); /// [
+        self.skip_ws();
+        var items = List.new();
+        if self.peek() == 93u8 {
+            self.advance(); /// ]
+            return Ok(Array(items));
+        }
+        loop {
+            let val = self.parse_value()?;
+            items.push(val);
+            self.skip_ws();
+            if self.peek() == 93u8 {
+                self.advance(); /// ]
+                return Ok(Array(items));
+            }
+            self.expect(44u8)?; /// ,
+        }
+    }
+
+    fn parse_object(mutref self) -> Result[JsonValue, String] {
+        self.advance(); /// {
+        self.skip_ws();
+        var entries = Map.new();
+        if self.peek() == 125u8 {
+            self.advance(); /// }
+            return Ok(Object(entries));
+        }
+        loop {
+            self.skip_ws();
+            let key = self.read_string()?;
+            self.skip_ws();
+            self.expect(58u8)?; /// :
+            let val = self.parse_value()?;
+            entries.insert(key, val);
+            self.skip_ws();
+            if self.peek() == 125u8 {
+                self.advance(); /// }
+                return Ok(Object(entries));
+            }
+            self.expect(44u8)?; /// ,
+        }
+    }
 }
 
 /// Serialize a JsonValue to a JSON string.
-/// Bootstrap: stub — returns an error.
 pub fn stringify(value: ref JsonValue) -> Result[String, String] {
-    return Err("json serialization not implemented in bootstrap");
+    var buf = String.new();
+    stringify_value(ref value, mutref buf);
+    return Ok(buf);
 }
+
+fn stringify_value(value: ref JsonValue, buf: mutref String) {
+    match value {
+        Null => {
+            buf = buf + "null";
+        },
+        Bool(b) => {
+            if b { buf = buf + "true"; }
+            else { buf = buf + "false"; }
+        },
+        Number(n) => {
+            /// Bootstrap: integer-only rendering via digit loop.
+            let int_part: I32 = n;
+            if int_part == 0 {
+                buf = buf + "0";
+            } else {
+                var tmp = int_part;
+                if tmp < 0 {
+                    buf = buf + "-";
+                    tmp = 0 - tmp;
+                }
+                /// Count digits.
+                var d = 0;
+                var t = tmp;
+                while t > 0 { d = d + 1; t = t / 10; }
+                /// Build digit string in reverse using a small array.
+                var arr = [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8];
+                var idx = d - 1;
+                while tmp > 0 {
+                    let digit: U8 = (tmp % 10) + 48;
+                    arr[idx] = digit;
+                    tmp = tmp / 10;
+                    idx = idx - 1;
+                }
+                var i = 0;
+                while i < d {
+                    var ch: Ptr[U8] = Ptr.null();
+                    unsafe {
+                        extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+                        ch = fuse_rt_mem_alloc(1usize);
+                    }
+                    ch[0usize] = arr[i];
+                    let one_char = String { data: ch, len: 1usize, cap: 1usize };
+                    buf = buf + one_char;
+                    i = i + 1;
+                }
+            }
+        },
+        Str(s) => {
+            buf = buf + "\"";
+            buf = buf + s;
+            buf = buf + "\"";
+        },
+        Array(items) => {
+            buf = buf + "[";
+            var i = 0usize;
+            let len = items.len();
+            while i < len {
+                if i > 0usize { buf = buf + ","; }
+                match items.get(i) {
+                    Some(item) => stringify_value(ref item, mutref buf),
+                    None => {},
+                }
+                i = i + 1usize;
+            }
+            buf = buf + "]";
+        },
+        Object(entries) => {
+            /// Bootstrap limitation: Map iteration not yet supported.
+            /// Object serialization emits {}.
+            buf = buf + "{}";
+        },
+    }
+}
+

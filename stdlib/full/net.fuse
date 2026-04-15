@@ -1,5 +1,8 @@
 /// Networking: TCP/UDP sockets.
-/// Bootstrap: stub implementation.
+///
+/// Requires runtime extension: the bootstrap runtime does not include
+/// socket system calls. These functions return Err with a diagnostic
+/// message until fuse_rt_net_* functions are added to the runtime.
 
 import core.result.Result;
 import core.string.String;
@@ -10,22 +13,19 @@ pub struct TcpStream {
 }
 
 impl TcpStream {
-    /// Connect to a remote address.
-    /// Bootstrap: stub — returns an error.
+    /// Connect to a remote address (e.g. "127.0.0.1:8080").
     pub fn connect(addr: ref String) -> Result[TcpStream, String] {
-        return Err("net not implemented in bootstrap");
+        return Err("TcpStream.connect: requires fuse_rt_net_connect (not in bootstrap runtime)");
     }
 
-    /// Read bytes from the stream.
-    /// Bootstrap: stub.
+    /// Read up to `len` bytes from the stream into `buf`.
     pub fn read(mutref self, buf: Ptr[U8], len: USize) -> Result[USize, String] {
-        return Err("net not implemented in bootstrap");
+        return Err("TcpStream.read: requires fuse_rt_net_read (not in bootstrap runtime)");
     }
 
-    /// Write bytes to the stream.
-    /// Bootstrap: stub.
+    /// Write `len` bytes from `buf` to the stream.
     pub fn write(mutref self, buf: Ptr[U8], len: USize) -> Result[USize, String] {
-        return Err("net not implemented in bootstrap");
+        return Err("TcpStream.write: requires fuse_rt_net_write (not in bootstrap runtime)");
     }
 
     /// Close the connection.
@@ -40,14 +40,12 @@ pub struct TcpListener {
 
 impl TcpListener {
     /// Bind to a local address and start listening.
-    /// Bootstrap: stub — returns an error.
     pub fn bind(addr: ref String) -> Result[TcpListener, String] {
-        return Err("net not implemented in bootstrap");
+        return Err("TcpListener.bind: requires fuse_rt_net_bind (not in bootstrap runtime)");
     }
 
     /// Accept an incoming connection.
-    /// Bootstrap: stub — returns an error.
     pub fn accept(mutref self) -> Result[TcpStream, String] {
-        return Err("net not implemented in bootstrap");
+        return Err("TcpListener.accept: requires fuse_rt_net_accept (not in bootstrap runtime)");
     }
 }

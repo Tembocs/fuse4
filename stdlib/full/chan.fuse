@@ -1,51 +1,159 @@
 /// Channel module: typed message-passing channels.
-/// This module depends on core, sync, and the runtime bridge.
 ///
-/// Chan[T] is the primary concurrency primitive in Fuse.
-/// Channels are unbuffered by default (send blocks until recv).
+/// Chan[T] is a bounded channel with an internal queue.
+/// send() blocks when full, recv() blocks when empty.
+/// Uses mutex + condition variables for thread safety.
 
 import core.option.Option;
 import core.result.Result;
 
 /// Chan[T] is a typed communication channel between threads.
 pub struct Chan[T] {
+    buf: Ptr[T],
+    cap: USize,
+    len: USize,
+    head: USize,
+    tail: USize,
     closed: Bool,
+    mutex: Ptr[U8],
+    not_empty: Ptr[U8],
+    not_full: Ptr[U8],
 }
 
-impl Chan {
-    /// Create a new unbuffered channel.
-    pub fn new() -> Chan {
-        Chan { closed: false }
-    }
-
-    /// Send a value on the channel. Blocks until a receiver is ready.
-    pub fn send(mutref self, value: owned T) -> Result[(), String] {
-        if self.closed {
-            return Err("send on closed channel");
+impl[T] Chan[T] {
+    /// Create a new buffered channel with the given capacity.
+    /// Capacity must be at least 1.
+    pub fn new(capacity: USize) -> Chan[T] {
+        var cap = capacity;
+        if cap == 0usize { cap = 1usize; }
+        var buf: Ptr[T] = Ptr.null();
+        var mtx: Ptr[U8] = Ptr.null();
+        var ne: Ptr[U8] = Ptr.null();
+        var nf: Ptr[U8] = Ptr.null();
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            extern fn fuse_rt_mutex_create() -> Ptr[U8];
+            extern fn fuse_rt_cond_create() -> Ptr[U8];
+            buf = fuse_rt_mem_alloc(cap);
+            mtx = fuse_rt_mutex_create();
+            ne = fuse_rt_cond_create();
+            nf = fuse_rt_cond_create();
         }
-        Ok(())
+        return Chan {
+            buf: buf,
+            cap: cap,
+            len: 0usize,
+            head: 0usize,
+            tail: 0usize,
+            closed: false,
+            mutex: mtx,
+            not_empty: ne,
+            not_full: nf,
+        };
     }
 
-    /// Receive a value from the channel. Blocks until a sender is ready.
+    /// Send a value on the channel. Blocks until space is available.
+    /// Returns Err if the channel is closed.
+    pub fn send(mutref self, value: T) -> Result[(), String] {
+        unsafe {
+            extern fn fuse_rt_mutex_lock(m: Ptr[U8]);
+            extern fn fuse_rt_mutex_unlock(m: Ptr[U8]);
+            extern fn fuse_rt_cond_wait(c: Ptr[U8], m: Ptr[U8]);
+            extern fn fuse_rt_cond_signal(c: Ptr[U8]);
+            fuse_rt_mutex_lock(self.mutex);
+            if self.closed {
+                fuse_rt_mutex_unlock(self.mutex);
+                return Err("send on closed channel");
+            }
+            /// Wait until there is space.
+            while self.len == self.cap {
+                fuse_rt_cond_wait(self.not_full, self.mutex);
+                if self.closed {
+                    fuse_rt_mutex_unlock(self.mutex);
+                    return Err("send on closed channel");
+                }
+            }
+            /// Enqueue at tail.
+            self.buf[self.tail] = value;
+            self.tail = (self.tail + 1usize) % self.cap;
+            self.len = self.len + 1usize;
+            /// Signal a waiting receiver.
+            fuse_rt_cond_signal(self.not_empty);
+            fuse_rt_mutex_unlock(self.mutex);
+            return Ok(());
+        }
+    }
+
+    /// Receive a value from the channel. Blocks until a value is available.
+    /// Returns Err if the channel is closed and empty.
     pub fn recv(mutref self) -> Result[T, String] {
-        if self.closed {
-            return Err("recv on closed channel");
+        unsafe {
+            extern fn fuse_rt_mutex_lock(m: Ptr[U8]);
+            extern fn fuse_rt_mutex_unlock(m: Ptr[U8]);
+            extern fn fuse_rt_cond_wait(c: Ptr[U8], m: Ptr[U8]);
+            extern fn fuse_rt_cond_signal(c: Ptr[U8]);
+            fuse_rt_mutex_lock(self.mutex);
+            /// Wait until there is data.
+            while self.len == 0usize {
+                if self.closed {
+                    fuse_rt_mutex_unlock(self.mutex);
+                    return Err("recv on closed empty channel");
+                }
+                fuse_rt_cond_wait(self.not_empty, self.mutex);
+            }
+            /// Dequeue from head.
+            let val = self.buf[self.head];
+            self.head = (self.head + 1usize) % self.cap;
+            self.len = self.len - 1usize;
+            /// Signal a waiting sender.
+            fuse_rt_cond_signal(self.not_full);
+            fuse_rt_mutex_unlock(self.mutex);
+            return Ok(val);
         }
-        Err("channel empty")
     }
 
     /// Try to receive without blocking. Returns None if no value is ready.
     pub fn try_recv(mutref self) -> Option[T] {
-        None
+        unsafe {
+            extern fn fuse_rt_mutex_lock(m: Ptr[U8]);
+            extern fn fuse_rt_mutex_unlock(m: Ptr[U8]);
+            extern fn fuse_rt_cond_signal(c: Ptr[U8]);
+            fuse_rt_mutex_lock(self.mutex);
+            if self.len == 0usize {
+                fuse_rt_mutex_unlock(self.mutex);
+                return None;
+            }
+            let val = self.buf[self.head];
+            self.head = (self.head + 1usize) % self.cap;
+            self.len = self.len - 1usize;
+            fuse_rt_cond_signal(self.not_full);
+            fuse_rt_mutex_unlock(self.mutex);
+            return Some(val);
+        }
     }
 
     /// Close the channel. Further sends will fail.
+    /// Wakes all waiting threads.
     pub fn close(mutref self) {
-        self.closed = true;
+        unsafe {
+            extern fn fuse_rt_mutex_lock(m: Ptr[U8]);
+            extern fn fuse_rt_mutex_unlock(m: Ptr[U8]);
+            extern fn fuse_rt_cond_broadcast(c: Ptr[U8]);
+            fuse_rt_mutex_lock(self.mutex);
+            self.closed = true;
+            fuse_rt_cond_broadcast(self.not_empty);
+            fuse_rt_cond_broadcast(self.not_full);
+            fuse_rt_mutex_unlock(self.mutex);
+        }
     }
 
     /// Return true if the channel is closed.
     pub fn is_closed(ref self) -> Bool {
-        self.closed
+        return self.closed;
+    }
+
+    /// Return the number of items currently buffered.
+    pub fn len(ref self) -> USize {
+        return self.len;
     }
 }

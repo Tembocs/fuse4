@@ -1,6 +1,8 @@
 /// HTTP client for making HTTP requests.
-/// Bootstrap: stub implementation — full implementation requires
-/// network I/O and TLS support.
+///
+/// Requires runtime extension: the bootstrap runtime does not include
+/// network sockets or TLS. These functions return Err with a diagnostic
+/// message until fuse_rt_net_* functions are added to the runtime.
 
 import core.result.Result;
 import core.string.String;
@@ -35,13 +37,21 @@ impl Response {
 }
 
 /// Perform an HTTP GET request.
-/// Bootstrap: stub — returns an error.
 pub fn get(url: ref String) -> Result[Response, String] {
-    return Err("http not implemented in bootstrap");
+    return Err("http.get: requires network support (not in bootstrap runtime)");
 }
 
 /// Perform an HTTP POST request with a body.
-/// Bootstrap: stub — returns an error.
 pub fn post(url: ref String, body: ref String) -> Result[Response, String] {
-    return Err("http not implemented in bootstrap");
+    return Err("http.post: requires network support (not in bootstrap runtime)");
+}
+
+/// Perform an HTTP PUT request with a body.
+pub fn put(url: ref String, body: ref String) -> Result[Response, String] {
+    return Err("http.put: requires network support (not in bootstrap runtime)");
+}
+
+/// Perform an HTTP DELETE request.
+pub fn delete(url: ref String) -> Result[Response, String] {
+    return Err("http.delete: requires network support (not in bootstrap runtime)");
 }

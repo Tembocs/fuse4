@@ -154,6 +154,16 @@ func (b *Builder) EmitEnumInit(dest LocalId, variant string, args []LocalId, ty 
 	b.emit(Instr{Kind: InstrEnumInit, Dest: dest, Type: ty, Args: args, Field: variant})
 }
 
+// EmitPtrWrite emits: dest[index] = value
+func (b *Builder) EmitPtrWrite(dest, index, value LocalId, elemType typetable.TypeId) {
+	b.emit(Instr{Kind: InstrPtrWrite, Dest: dest, Src: index, Src2: value, Type: elemType})
+}
+
+// EmitPtrDerefWrite emits: *dest = value
+func (b *Builder) EmitPtrDerefWrite(dest, value LocalId, elemType typetable.TypeId) {
+	b.emit(Instr{Kind: InstrPtrDerefWrite, Dest: dest, Src: value, Type: elemType})
+}
+
 // --- terminators ---
 
 func (b *Builder) seal(term Terminator) {

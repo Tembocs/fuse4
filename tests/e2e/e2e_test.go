@@ -648,6 +648,18 @@ fn main() -> I32 { return classify(42); }`,
 		WantExit: 10,
 	},
 
+	// ===== Wave 19: Pointer write =====
+	{
+		Name: "w19_ptr_write_array",
+		Source: `fn main() -> I32 {
+	var arr = [0, 0, 0];
+	arr[0] = 10;
+	arr[1] = 32;
+	return arr[0] + arr[1];
+}`,
+		WantExit: 42,
+	},
+
 	// ===== Wave 18: Trait default methods =====
 	{
 		Name: "w18_trait_default_method",

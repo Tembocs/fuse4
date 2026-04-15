@@ -59,6 +59,8 @@ const (
 	InstrStructInit                   // dest = StructName { fields... }
 	InstrEnumInit                     // dest = EnumVariant(args...)
 	InstrCast                         // dest = src as Type
+	InstrPtrWrite                     // dest[index] = value (pointer indexed write)
+	InstrPtrDerefWrite                // *dest = value (pointer dereference write)
 )
 
 // Instr is a single MIR instruction.

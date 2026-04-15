@@ -397,6 +397,25 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 		}
 		e.writeln("")
 
+	case mir.InstrPtrWrite:
+		// For array types: dest.data[index] = value
+		// For pointer types: dest[index] = value
+		e.writeIndent()
+		destLocal := e.localName(instr.Dest)
+		te := e.Types.Get(fn.Locals[instr.Dest].Type)
+		if te.Kind == typetable.KindArray {
+			e.writef("%s.data[%s] = %s;", destLocal, e.localValue(instr.Src), e.localValue(instr.Src2))
+		} else {
+			e.writef("%s[%s] = %s;", destLocal, e.localValue(instr.Src), e.localValue(instr.Src2))
+		}
+		e.writeln("")
+
+	case mir.InstrPtrDerefWrite:
+		// *dest = value → *dest = value;
+		e.writeIndent()
+		e.writef("*%s = %s;", e.localName(instr.Dest), e.localValue(instr.Src))
+		e.writeln("")
+
 	case mir.InstrEnumInit:
 		e.writeIndent()
 		ty := MangleType(e.Types, instr.Type)

@@ -204,6 +204,19 @@ func (l *Lowerer) lowerUnary(n *hir.UnaryExpr) mir.LocalId {
 
 func (l *Lowerer) lowerAssign(n *hir.AssignExpr) mir.LocalId {
 	val := l.lowerExpr(n.Value)
+
+	// Check if the assignment target is an index expression (ptr[i] = val).
+	if idx, ok := n.Target.(*hir.IndexExpr); ok {
+		src := l.lowerExpr(idx.Expr)
+		index := l.lowerExpr(idx.Index)
+		l.b.EmitPtrWrite(src, index, val, n.Value.Meta().Type)
+		return l.constUnit()
+	}
+
+	// Check if the assignment target is a field expression (obj.field = val).
+	// For struct field writes, we need the base object and field name.
+	// Currently handled by EmitCopy on the field's local.
+
 	target := l.lowerExpr(n.Target)
 	l.b.EmitCopy(target, val, n.Value.Meta().Type)
 	return l.constUnit()

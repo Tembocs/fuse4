@@ -376,6 +376,31 @@ fn main() -> Score { return 42; }`,
 		WantExit: 42,
 	},
 
+	// ===== Wave 18 Phase 03: Trait System =====
+	{
+		Name: "w18_inherent_method",
+		Source: `struct Counter { val: I32 }
+impl Counter {
+	fn get(ref self) -> I32 { return self.val; }
+}
+fn main() -> I32 {
+	let c = Counter { val: 42 };
+	return c.get();
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_trait_impl_dispatch",
+		Source: `trait Getter { fn value(ref self) -> I32; }
+struct Box { v: I32 }
+impl Getter : Box { fn value(ref self) -> I32 { return self.v; } }
+fn main() -> I32 {
+	let b = Box { v: 42 };
+	return b.value();
+}`,
+		WantExit: 42,
+	},
+
 	// ===== Wave 18 Phase 02: Closures =====
 	{
 		Name: "w18_closure_no_capture",

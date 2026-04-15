@@ -105,6 +105,34 @@ func (c *Checker) resolveParamTypes(params []ast.Param) []typetable.TypeId {
 	return types
 }
 
+// resolveImplParamTypes resolves params like resolveParamTypes but substitutes
+// the target type for `self` parameters (name == "self" with nil type).
+func (c *Checker) resolveImplParamTypes(params []ast.Param, targetType typetable.TypeId) []typetable.TypeId {
+	types := make([]typetable.TypeId, len(params))
+	for i, p := range params {
+		if p.Name == "self" && p.Type == nil {
+			ty := targetType
+			switch p.Ownership {
+			case lex.KwRef:
+				ty = c.Types.InternRef(ty)
+			case lex.KwMutref:
+				ty = c.Types.InternMutRef(ty)
+			}
+			types[i] = ty
+		} else {
+			ty := c.resolveTypeExprOr(p.Type, c.Types.Unknown)
+			switch p.Ownership {
+			case lex.KwRef:
+				ty = c.Types.InternRef(ty)
+			case lex.KwMutref:
+				ty = c.Types.InternMutRef(ty)
+			}
+			types[i] = ty
+		}
+	}
+	return types
+}
+
 // --- numeric widening ---
 
 // numericWiden returns the wider type when two numeric types in the same family

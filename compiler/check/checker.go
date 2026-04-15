@@ -10,6 +10,7 @@ package check
 import (
 	"github.com/Tembocs/fuse4/compiler/ast"
 	"github.com/Tembocs/fuse4/compiler/diagnostics"
+	"github.com/Tembocs/fuse4/compiler/lex"
 	"github.com/Tembocs/fuse4/compiler/resolve"
 	"github.com/Tembocs/fuse4/compiler/typetable"
 )
@@ -55,6 +56,9 @@ type Checker struct {
 
 	// ConstLiterals maps const names to their literal string values (for inlining).
 	ConstLiterals map[string]string
+
+	// localTypes maps local variable names to their resolved types (within the current function).
+	localTypes map[string]typetable.TypeId
 
 	// current context during body checking
 	currentModule *resolve.Module
@@ -264,21 +268,25 @@ func (c *Checker) registerTrait(_ *resolve.Module, t *ast.TraitDecl) {
 }
 
 func (c *Checker) registerImpl(mod *resolve.Module, impl *ast.ImplDecl) {
+	targetName := typeExprName(impl.Target)
+	targetType := c.resolveTypeExpr(impl.Target)
+
 	for _, item := range impl.Items {
 		if fn, ok := item.(*ast.FnDecl); ok {
-			targetName := typeExprName(impl.Target)
 			c.registerFn(mod, fn)
-			// Also register as method on the target type.
-			params := c.resolveParamTypes(fn.Params)
+			// Resolve params with self → target type.
+			params := c.resolveImplParamTypes(fn.Params, targetType)
 			ret := c.resolveTypeExprOr(fn.ReturnType, c.Types.Unit)
 			key := targetName + "." + fn.Name
 			c.funcTypes[key] = c.Types.InternFunc(params, ret)
+			// Also register module-qualified for direct lookup.
+			qualKey := mod.Path.String() + "." + fn.Name
+			c.funcTypes[qualKey] = c.Types.InternFunc(params, ret)
 		}
 	}
 	// Record trait impl if present.
 	if impl.Trait != nil {
 		traitName := typeExprName(impl.Trait)
-		targetName := typeExprName(impl.Target)
 		if traitName != "" && targetName != "" {
 			c.traitImpls[traitName+":"+targetName] = true
 		}
@@ -312,16 +320,33 @@ func (c *Checker) checkBodies(mod *resolve.Module) {
 func (c *Checker) checkFnBody(mod *resolve.Module, fn *ast.FnDecl) {
 	c.currentReturn = c.resolveTypeExprOr(fn.ReturnType, c.Types.Unit)
 	c.localScope = resolve.NewScope(mod.Symbols)
+	c.localTypes = make(map[string]typetable.TypeId)
 
-	// Add parameters to local scope.
+	// Add parameters to local scope with their types.
 	for _, p := range fn.Params {
 		pty := c.resolveTypeExprOr(p.Type, c.Types.Unknown)
+		// For self params in impl methods, type was already set correctly
+		// via resolveImplParamTypes; look it up from the function signature.
+		if p.Name == "self" && p.Type == nil {
+			qualName := mod.Path.String() + "." + fn.Name
+			paramTypes := c.FuncParamTypes(qualName)
+			if len(paramTypes) > 0 {
+				pty = paramTypes[0]
+			}
+		} else {
+			switch p.Ownership {
+			case lex.KwRef:
+				pty = c.Types.InternRef(pty)
+			case lex.KwMutref:
+				pty = c.Types.InternMutRef(pty)
+			}
+		}
 		c.localScope.Define(&resolve.Symbol{
 			Name: p.Name,
 			Kind: resolve.SymParam,
 			Span: p.Span,
 		})
-		_ = pty // param type is used during expression checking
+		c.localTypes[p.Name] = pty
 	}
 
 	c.checkBlock(fn.Body)

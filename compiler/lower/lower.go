@@ -213,16 +213,21 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 	dest := l.b.NewTemp(n.Meta().Type)
 
 	if fe, ok := n.Callee.(*hir.FieldExpr); ok {
-		// Method call: obj.method(args) → call(method, obj, args...)
+		// Method call: obj.method(args) → call(Fuse_method, &obj, args...)
 		recv := l.lowerExpr(fe.Expr)
+		// Pass receiver as a reference (borrow) for ref self methods.
+		recvType := fe.Expr.Meta().Type
+		refType := l.Types.InternRef(recvType)
+		recvRef := l.b.NewTemp(refType)
+		l.b.EmitBorrow(recvRef, recv, refType, mir.BorrowShared)
 		var args []mir.LocalId
-		args = append(args, recv)
+		args = append(args, recvRef)
 		for _, a := range n.Args {
 			args = append(args, l.lowerExpr(a))
 		}
-		// Method is referenced by name, create a callee local.
+		// Mangle the method name for C emission.
 		callee := l.b.NewTemp(l.Types.Unknown)
-		l.b.EmitConst(callee, l.Types.Unknown, fe.Name)
+		l.b.EmitConst(callee, l.Types.Unknown, "Fuse_"+fe.Name)
 		l.b.EmitCall(dest, callee, args, n.Meta().Type, true)
 		return dest
 	}

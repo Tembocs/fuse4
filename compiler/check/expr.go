@@ -123,7 +123,19 @@ func (c *Checker) inferFloatLiteral(lit string) typetable.TypeId {
 // --- identifiers ---
 
 func (c *Checker) checkIdent(e *ast.IdentExpr) typetable.TypeId {
-	// Check local scope first.
+	// Check local variable types first (let/var bindings and params).
+	if c.localTypes != nil {
+		if ty, ok := c.localTypes[e.Name]; ok {
+			// Auto-deref: when a local has ref/mutref type, the expression
+			// evaluates to the inner type (borrows are transparent in expressions).
+			te := c.Types.Get(ty)
+			if te.Kind == typetable.KindRef || te.Kind == typetable.KindMutRef {
+				return te.Elem
+			}
+			return ty
+		}
+	}
+	// Check local scope for other symbols.
 	if c.localScope != nil {
 		if sym := c.localScope.Lookup(e.Name); sym != nil {
 			return c.symbolType(sym)
@@ -518,6 +530,9 @@ func (c *Checker) checkStmt(stmt ast.Stmt) {
 				Span: s.Span,
 			})
 		}
+		if c.localTypes != nil {
+			c.localTypes[s.Name] = ty
+		}
 	case *ast.VarStmt:
 		ty := c.resolveTypeExprOr(s.Type, c.Types.Unknown)
 		if s.Value != nil {
@@ -532,6 +547,9 @@ func (c *Checker) checkStmt(stmt ast.Stmt) {
 				Kind: resolve.SymLocal,
 				Span: s.Span,
 			})
+		}
+		if c.localTypes != nil {
+			c.localTypes[s.Name] = ty
 		}
 	case *ast.ExprStmt:
 		c.checkExpr(s.Expr)

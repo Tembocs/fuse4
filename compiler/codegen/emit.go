@@ -184,6 +184,12 @@ func (e *Emitter) emitFnForwardDecl(fn *mir.Function) {
 
 func (e *Emitter) calleeName(id mir.LocalId) string {
 	if name, ok := e.constNames[id]; ok {
+		// Sanitize the callee name to handle C keywords.
+		// The lowerer emits "Fuse_double" but C needs "Fuse_fuse_double".
+		if strings.HasPrefix(name, "Fuse_") {
+			suffix := name[5:]
+			return "Fuse_" + SanitizeIdent(suffix)
+		}
 		return name
 	}
 	return e.localName(id)

@@ -2,7 +2,7 @@
 
 ## 0. Documentation
 
-- [ ] **0a.** Add L020 to learning-log.md documenting the full list of blockers between Wave 18 and Wave 19, why each is needed, and the dependency chain
+- [x] **0a.** Add L020 to learning-log.md documenting the full list of blockers between Wave 18 and Wave 19, why each is needed, and the dependency chain
 
 ## 1. Codegen: Pointer Write Support
 

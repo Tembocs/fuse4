@@ -1717,3 +1717,103 @@ The correct scheduling for a Fuse-like language is:
 **Verification**:
 This entry is verified when all seven features have e2e proof programs
 or are explicitly descoped with a rationale in the language guide.
+
+### L020 — Complete blockers between Wave 18 and Wave 19
+
+Date: 2026-04-15
+Discovered during: Post-Wave-18 audit for Wave 19 readiness
+
+**Reproducer**:
+Wave 18 (Language Completeness) is functionally complete: 69 e2e proof
+programs pass, 53 stdlib modules compile, all 17 Go packages are green.
+However, the stdlib collection methods (List.push, Map.insert, etc.) are
+stubs because the compiler cannot emit pointer write instructions. The
+Stage 2 compiler is 12 skeleton files. The native backend is a skeleton.
+The C runtime is still required. None of these can be addressed without
+specific compiler and infrastructure work.
+
+**What was tried first**:
+Wave 18 implementation attempted to write real stdlib method bodies but
+discovered that pointer write support (`ptr[index] = value`) is missing
+from the codegen. Without it, no mutable data structure can function.
+
+**Root cause**:
+Three categories of work remain between Wave 18 and Wave 19:
+
+1. **Codegen gaps** — Three missing compiler features block the stdlib:
+   - Pointer write (`ptr[index] = value`, `*ptr = value`): required for
+     any mutable collection, string building, or buffer management.
+   - String concatenation (`a + b` on strings): required for error
+     messages, formatting, any string construction.
+   - Self type resolution (`Self` in impl bodies): required for
+     idiomatic trait implementations.
+
+2. **Stage 2 compiler** — 12 skeleton .fuse files need complete
+   implementations mirroring the Stage 1 Go compiler (~11K LOC
+   equivalent): lexer, parser, AST, name resolution, type checking,
+   HIR, MIR, lowering, codegen, driver, CLI.
+
+3. **C retirement** — Two C dependencies must be replaced:
+   - C11 backend (gcc dependency): must be replaced by a native x86-64
+     backend with register allocation, ABI compliance, and object file
+     emission for Linux, macOS, and Windows.
+   - C runtime (runtime/src/*.c): must be rewritten in Fuse using
+     platform syscalls directly.
+
+**Spec gap**:
+The implementation plan defines Wave 19 as "Retirement of Go and C" but
+does not break down the native backend or runtime rewrite into concrete
+tasks. The plan assumes these are straightforward once self-hosting
+works, but they are each substantial engineering efforts.
+
+**Plan gap**:
+The implementation plan does not account for the codegen gaps discovered
+during Wave 18 stdlib work. Pointer write support should have been part
+of Wave 09 (C11 Backend and Representation Contracts) but was not
+identified as a task because the early waves did not attempt mutable
+data structures.
+
+**Fix**:
+134 tasks documented in WAVE19_TASKS.md, organized into 18 sections:
+- Sections 0–3: codegen gaps (pointer write, string concat, Self)
+- Sections 4–7: stdlib real implementations
+- Sections 8–15: Stage 2 compiler
+- Section 16: native backend (mandatory)
+- Section 17: runtime rewrite (mandatory)
+- Section 18: self-hosting verification and Go/C removal
+
+C retirement is mandatory and non-optional. Both the C11 backend and
+the C runtime must be replaced before Wave 19 is complete.
+
+**Dependency chain**:
+```
+Pointer write (1) → List/Map/Set/String real bodies (4-7)
+String concat (2) → Formatter, error messages
+Self type (3) → idiomatic trait impls
+Stdlib (4-7) → Stage 2 compiler needs working collections
+Stage 2 (8-15) → self-hosting gate
+Native backend (16) → retire gcc
+Runtime rewrite (17) → retire C
+Self-hosting (18) → Wave 19 exit
+```
+
+**Cascading effects**:
+Without pointer write support, no mutable data structure works. Without
+working data structures, the Stage 2 compiler cannot manage symbol
+tables, token streams, AST nodes, or any internal state. Without Stage 2,
+there is no self-hosting. Without a native backend, gcc cannot be retired.
+Without a Fuse runtime, C cannot be retired.
+
+**Architectural lesson**:
+The path from "compiler works for programs" to "compiler compiles itself
+without external dependencies" requires three distinct engineering
+efforts that are often underestimated: (1) the compiler must support its
+own implementation language's patterns (pointer manipulation, string
+building, hash tables), (2) the compiler must be reimplemented in its
+own language, and (3) all external dependencies must be replaced with
+native implementations. Each of these is substantial and must be planned
+explicitly.
+
+**Verification**:
+This entry is verified when WAVE19_TASKS.md section 18 task 18i passes:
+`fuse build` produces working binaries with no Go, no C, no gcc.

@@ -1,6 +1,7 @@
 package check
 
 import (
+	"github.com/Tembocs/fuse4/compiler/ast"
 	"github.com/Tembocs/fuse4/compiler/diagnostics"
 	"github.com/Tembocs/fuse4/compiler/typetable"
 )
@@ -73,7 +74,16 @@ func (c *Checker) lookupMethod(recvType typetable.TypeId, method string, span di
 		if fty, ok := c.funcTypes[te.Name+"."+method]; ok {
 			fe := c.Types.Get(fty)
 			if fe.Kind == typetable.KindFunc {
-				return fe.ReturnType
+				ret := fe.ReturnType
+				// Substitute generic type args from the receiver into the return type.
+				// E.g., Option[I32].unwrap_or() → return type T becomes I32.
+				if len(te.TypeArgs) > 0 {
+					retEntry := c.Types.Get(ret)
+					if retEntry.Kind == typetable.KindGenericParam {
+						ret = c.substituteTypeArg(retEntry, te)
+					}
+				}
+				return ret
 			}
 		}
 	}
@@ -100,6 +110,43 @@ func (c *Checker) lookupTraitMethod(recvType typetable.TypeId, method string, sp
 		}
 	}
 
+	return c.Types.Unknown
+}
+
+// substituteTypeArg resolves a generic param type using the receiver's type args.
+// E.g., for Option[I32], if the generic param is T (index 0), returns I32.
+func (c *Checker) substituteTypeArg(paramEntry *typetable.TypeEntry, receiverEntry *typetable.TypeEntry) typetable.TypeId {
+	// Look up which generic param index this corresponds to by matching
+	// the param name against the enum/struct's generic param declarations.
+	paramName := paramEntry.Name
+	// Search enum variant definitions for the parent type's generic param order.
+	if variants, ok := c.EnumVariants[receiverEntry.Name]; ok {
+		_ = variants // just checking existence
+		// Find the enum decl to get generic param order.
+		for _, key := range c.Graph.Order {
+			mod := c.Graph.Modules[key]
+			for _, item := range mod.File.Items {
+				if ed, ok := item.(*ast.EnumDecl); ok && ed.Name == receiverEntry.Name {
+					for i, gp := range ed.GenericParams {
+						if gp.Name == paramName && i < len(receiverEntry.TypeArgs) {
+							return receiverEntry.TypeArgs[i]
+						}
+					}
+				}
+				if sd, ok := item.(*ast.StructDecl); ok && sd.Name == receiverEntry.Name {
+					for i, gp := range sd.GenericParams {
+						if gp.Name == paramName && i < len(receiverEntry.TypeArgs) {
+							return receiverEntry.TypeArgs[i]
+						}
+					}
+				}
+			}
+		}
+	}
+	// Fallback: try positional matching.
+	if len(receiverEntry.TypeArgs) > 0 {
+		return receiverEntry.TypeArgs[0]
+	}
 	return c.Types.Unknown
 }
 

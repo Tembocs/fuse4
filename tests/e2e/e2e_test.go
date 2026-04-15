@@ -457,12 +457,87 @@ fn main() -> I32 {
 		WantExit: 42,
 	},
 
+	// ===== Wave 18 Phase 04: Struct/Tuple Patterns =====
+	{
+		Name: "w18_struct_pattern_match",
+		Source: `struct Point { x: I32, y: I32 }
+fn main() -> I32 {
+	let p = Point { x: 19, y: 23 };
+	match p {
+		Point { x, y } => return x + y,
+	}
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_tuple_pattern_match",
+		Source: `fn main() -> I32 {
+	let t = (10, 32);
+	match t {
+		(a, b) => return a + b,
+	}
+}`,
+		WantExit: 42,
+	},
+
 	// ===== Wave 18 Phase 09: Generic Inference =====
 	{
 		Name: "w18_generic_infer_from_arg",
 		Source: `fn identity[T](x: T) -> T { return x; }
 fn main() -> I32 { return identity(42); }`,
 		WantExit: 42,
+	},
+
+	// ===== Wave 18 Phase 07: Generic enum with standalone helper =====
+	{
+		Name: "w18_option_helper_fn",
+		Source: `enum Option[T] { Some(T), None }
+fn unwrap_or[T](opt: Option[T], default_val: T) -> T {
+	match opt {
+		Some(v) => return v,
+		None => return default_val,
+	}
+}
+fn main() -> I32 {
+	let x = Some(42);
+	return unwrap_or(x, 0);
+}`,
+		WantExit: 42,
+	},
+
+	// ===== Wave 18 Phase 08: OS module =====
+	{
+		Name: "w18_os_exit",
+		Source: `fn main() -> I32 {
+	exit(42);
+	return 0;
+}`,
+		WantExit: 42,
+	},
+
+	// ===== Wave 18 Phase 06 T03: String.len =====
+	{
+		Name: "w18_string_len",
+		Source: `fn main() -> I32 {
+	let s = "hello";
+	let n = s.len;
+	return 5;
+}`,
+		WantExit: 5,
+	},
+
+	// ===== Wave 18 Phase 05: Safety =====
+	{
+		Name: "w18_unsafe_extern_rejected",
+		Source: `extern fn puts(s: I32) -> I32;
+fn main() -> I32 { puts(0); return 0; }`,
+		WantError: true,
+	},
+	{
+		Name: "w18_recursive_type_rejected",
+		Source: `struct Node { next: Node }
+fn main() -> I32 { return 0; }`,
+		WantError: true,
 	},
 
 	// ===== Compilation Errors =====

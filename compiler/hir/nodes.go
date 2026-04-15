@@ -206,6 +206,29 @@ type WildcardPattern struct{}
 
 func (p *WildcardPattern) patternNode() {}
 
+// StructPattern matches a struct and binds its fields.
+type StructPattern struct {
+	Name   string
+	Fields []StructPatternField
+	Type   typetable.TypeId
+}
+
+type StructPatternField struct {
+	Name    string  // field name
+	Binding string  // binding name (same as Name if shorthand)
+	Type    typetable.TypeId
+}
+
+func (p *StructPattern) patternNode() {}
+
+// TuplePattern matches a tuple and binds its elements.
+type TuplePattern struct {
+	Elems []Pattern
+	Type  typetable.TypeId
+}
+
+func (p *TuplePattern) patternNode() {}
+
 type ForExpr struct {
 	nodeBase
 	Binding  string

@@ -306,10 +306,10 @@ func (p *Parser) parsePrimaryExpr() ast.Expr {
 
 	// --- unsafe block ---
 	case lex.KwUnsafe:
-		// unsafe { ... } is just a block expression preceded by unsafe keyword
 		start := p.advance().Span // unsafe
 		block := p.parseBlock()
 		block.Span = spanStartEnd(start, block.Span)
+		block.Unsafe = true
 		return block
 
 	default:

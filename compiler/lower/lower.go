@@ -239,6 +239,23 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 		if ident.Name == "println" || ident.Name == "print" {
 			return l.lowerPrintCall(dest, ident.Name, n.Args)
 		}
+		// Built-in OS functions: lower to runtime calls.
+		if ident.Name == "exit" {
+			callee := l.b.NewTemp(l.Types.Unknown)
+			l.b.EmitConst(callee, l.Types.Unknown, "fuse_rt_proc_exit")
+			var args []mir.LocalId
+			for _, a := range n.Args {
+				args = append(args, l.lowerExpr(a))
+			}
+			l.b.EmitCall(dest, callee, args, l.Types.Never, false)
+			return dest
+		}
+		if ident.Name == "argc" {
+			callee := l.b.NewTemp(l.Types.Unknown)
+			l.b.EmitConst(callee, l.Types.Unknown, "fuse_rt_proc_argc")
+			l.b.EmitCall(dest, callee, nil, l.Types.I32, false)
+			return dest
+		}
 		// Check if this ident refers to a local that holds a closure reference.
 		if localId, isLocal := l.vars[ident.Name]; isLocal {
 			if fnName, isClosure := l.closureFns[localId]; isClosure {
@@ -431,6 +448,12 @@ func (l *Lowerer) lowerMatch(n *hir.MatchExpr) mir.LocalId {
 			cmp := l.b.NewTemp(l.Types.Bool)
 			l.b.EmitBinOp(cmp, "==", tag, expected, l.Types.Bool)
 			l.b.TermBranch(cmp, armBlock, nextBlock)
+		case *hir.StructPattern:
+			// Struct patterns always match (no discriminant to check).
+			l.b.TermGoto(armBlock)
+		case *hir.TuplePattern:
+			// Tuple patterns always match.
+			l.b.TermGoto(armBlock)
 		default:
 			// nil pattern or unknown: unconditional (backwards compat with PatternDesc)
 			l.b.TermGoto(armBlock)
@@ -452,6 +475,27 @@ func (l *Lowerer) lowerMatch(n *hir.MatchExpr) mir.LocalId {
 					local := l.b.NewLocal(bp.Name, bp.Type)
 					l.vars[bp.Name] = local
 					fieldName := fmt.Sprintf("_f%d", j)
+					l.b.EmitFieldRead(local, subject, fieldName, bp.Type)
+				}
+			}
+		}
+
+		// Handle struct pattern bindings: Point { x, y } => ...
+		if pat, ok := arm.Pattern.(*hir.StructPattern); ok {
+			for _, f := range pat.Fields {
+				local := l.b.NewLocal(f.Binding, f.Type)
+				l.vars[f.Binding] = local
+				l.b.EmitFieldRead(local, subject, f.Name, f.Type)
+			}
+		}
+
+		// Handle tuple pattern bindings: (a, b) => ...
+		if pat, ok := arm.Pattern.(*hir.TuplePattern); ok {
+			for j, elem := range pat.Elems {
+				if bp, ok := elem.(*hir.BindPattern); ok {
+					local := l.b.NewLocal(bp.Name, bp.Type)
+					l.vars[bp.Name] = local
+					fieldName := fmt.Sprintf("f_%d", j)
 					l.b.EmitFieldRead(local, subject, fieldName, bp.Type)
 				}
 			}

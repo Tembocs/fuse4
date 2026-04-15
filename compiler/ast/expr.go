@@ -117,9 +117,10 @@ func (n *QuestionExpr) exprNode()                   {}
 // ---------- Block ----------
 
 type BlockExpr struct {
-	Span  diagnostics.Span
-	Stmts []Stmt
-	Tail  Expr // trailing expression without semicolon, may be nil
+	Span   diagnostics.Span
+	Stmts  []Stmt
+	Tail   Expr // trailing expression without semicolon, may be nil
+	Unsafe bool // true if this is an unsafe { } block
 }
 
 func (n *BlockExpr) NodeSpan() diagnostics.Span { return n.Span }

@@ -60,10 +60,14 @@ type Checker struct {
 	// localTypes maps local variable names to their resolved types (within the current function).
 	localTypes map[string]typetable.TypeId
 
+	// externFns tracks extern function names for unsafe enforcement.
+	externFns map[string]bool
+
 	// current context during body checking
 	currentModule *resolve.Module
 	currentReturn typetable.TypeId
 	localScope    *resolve.Scope
+	inUnsafe      bool
 }
 
 type fieldInfo struct {
@@ -100,6 +104,7 @@ func NewChecker(types *typetable.TypeTable, graph *resolve.ModuleGraph) *Checker
 		constValues:      make(map[string]typetable.TypeId),
 		ConstLiterals:    make(map[string]string),
 		typeAliases:      make(map[string]typetable.TypeId),
+		externFns:        make(map[string]bool),
 	}
 }
 
@@ -165,6 +170,7 @@ func (c *Checker) registerExternFn(mod *resolve.Module, fn *ast.ExternFnDecl) {
 	ret := c.resolveTypeExprOr(fn.ReturnType, c.Types.Unit)
 	fty := c.Types.InternFunc(params, ret)
 	c.funcTypes[mod.Path.String()+"."+fn.Name] = fty
+	c.externFns[fn.Name] = true
 }
 
 func (c *Checker) registerStruct(mod *resolve.Module, s *ast.StructDecl) {
@@ -174,12 +180,16 @@ func (c *Checker) registerStruct(mod *resolve.Module, s *ast.StructDecl) {
 	var fieldTypes []typetable.TypeId
 	for _, f := range s.Fields {
 		fty := c.resolveTypeExpr(f.Type)
+		// Recursive type detection: a struct cannot contain itself directly.
+		if fty == sty {
+			c.errorf(f.Span, "recursive type: field '%s' in struct '%s' has the same type (use Ptr[%s] instead)",
+				f.Name, s.Name, s.Name)
+		}
 		fields = append(fields, fieldInfo{Name: f.Name, Type: fty})
 		fieldNames = append(fieldNames, f.Name)
 		fieldTypes = append(fieldTypes, fty)
 	}
 	c.structFields[sty] = fields
-	// Store field info on the type entry so codegen can emit struct definitions.
 	c.Types.SetStructFields(sty, fieldNames, fieldTypes)
 }
 
@@ -235,6 +245,13 @@ func (c *Checker) registerBuiltinFunctions() {
 	// print(s: String) -> ()
 	printTy := c.Types.InternFunc([]typetable.TypeId{strTy}, c.Types.Unit)
 	c.funcTypes["print"] = printTy
+	// OS module built-ins
+	// exit(code: I32) -> Never
+	exitTy := c.Types.InternFunc([]typetable.TypeId{c.Types.I32}, c.Types.Never)
+	c.funcTypes["exit"] = exitTy
+	// argc() -> I32
+	argcTy := c.Types.InternFunc(nil, c.Types.I32)
+	c.funcTypes["argc"] = argcTy
 }
 
 func (c *Checker) registerTypeAlias(_ *resolve.Module, ta *ast.TypeAliasDecl) {

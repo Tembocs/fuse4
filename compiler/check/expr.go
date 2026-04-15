@@ -255,6 +255,10 @@ func (c *Checker) checkCall(e *ast.CallExpr) typetable.TypeId {
 		if enumTy := c.checkVariantConstructor(ident.Name, e); enumTy != typetable.InvalidTypeId {
 			return enumTy
 		}
+		// Enforce unsafe: extern function calls require unsafe context.
+		if c.externFns[ident.Name] && !c.inUnsafe {
+			c.errorf(e.Span, "call to extern function '%s' requires unsafe block", ident.Name)
+		}
 	}
 
 	calleeType := c.checkExpr(e.Callee)
@@ -500,8 +504,12 @@ func (c *Checker) checkQuestion(e *ast.QuestionExpr) typetable.TypeId {
 
 func (c *Checker) checkBlock(e *ast.BlockExpr) typetable.TypeId {
 	prevScope := c.localScope
+	prevUnsafe := c.inUnsafe
 	c.localScope = resolve.NewScope(c.localScope)
-	defer func() { c.localScope = prevScope }()
+	if e.Unsafe {
+		c.inUnsafe = true
+	}
+	defer func() { c.localScope = prevScope; c.inUnsafe = prevUnsafe }()
 
 	for _, stmt := range e.Stmts {
 		c.checkStmt(stmt)

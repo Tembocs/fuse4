@@ -482,6 +482,35 @@ func (a *ast2hir) lowerPattern(p ast.Pattern, subjectTy typetable.TypeId) hir.Pa
 			}
 		}
 		return &hir.ConstructorPattern{Name: p.Name, Tag: tag, Args: args}
+	case *ast.StructPat:
+		var fields []hir.StructPatternField
+		for _, f := range p.Fields {
+			binding := f.Name
+			if f.Pat != nil {
+				if bp, ok := f.Pat.(*ast.BindPat); ok {
+					binding = bp.Name
+				}
+			}
+			fieldTy := a.tt.Unknown
+			if a.checker != nil {
+				fieldTy = a.checker.FieldType(subjectTy, f.Name)
+				if fieldTy == typetable.InvalidTypeId {
+					fieldTy = a.tt.Unknown
+				}
+			}
+			fields = append(fields, hir.StructPatternField{
+				Name:    f.Name,
+				Binding: binding,
+				Type:    fieldTy,
+			})
+		}
+		return &hir.StructPattern{Name: p.Name, Fields: fields, Type: subjectTy}
+	case *ast.TuplePat:
+		var elems []hir.Pattern
+		for _, el := range p.Elems {
+			elems = append(elems, a.lowerPattern(el, a.tt.Unknown))
+		}
+		return &hir.TuplePattern{Elems: elems, Type: subjectTy}
 	default:
 		return &hir.WildcardPattern{}
 	}

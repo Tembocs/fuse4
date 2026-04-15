@@ -6,17 +6,50 @@
 ///   Pass 2: check all function bodies.
 
 import core.string.String;
+import core.list.List;
 import core.map.Map;
 
 /// Checker performs type checking over a resolved module graph.
 pub struct Checker {
     func_types: Map[String, TypeId],
+    struct_fields: Map[String, List[FieldInfo]],
+    trait_methods: Map[String, List[MethodSig]],
+    trait_impls: Map[String, Bool],
+    trait_supers: Map[String, List[String]],
+    errors: List[String],
+    current_return: TypeId,
+}
+
+/// FieldInfo describes a struct field.
+pub struct FieldInfo {
+    name: String,
+    field_type: TypeId,
+}
+
+/// MethodSig describes a trait method signature.
+pub struct MethodSig {
+    name: String,
+    return_type: TypeId,
+}
+
+/// VariantDef describes an enum variant.
+pub struct VariantDef {
+    name: String,
+    tag: I32,
 }
 
 impl Checker {
     /// Create a new checker.
     pub fn new() -> Checker {
-        Checker { func_types: Map.new() }
+        return Checker {
+            func_types: Map.new(),
+            struct_fields: Map.new(),
+            trait_methods: Map.new(),
+            trait_impls: Map.new(),
+            trait_supers: Map.new(),
+            errors: List.new(),
+            current_return: 0,
+        };
     }
 
     /// Run all checking phases.
@@ -27,14 +60,86 @@ impl Checker {
     }
 
     /// Pass 1: register all function type signatures.
-    fn register_signatures(mutref self) {
+    /// Walks all modules and registers functions, structs, enums,
+    /// traits, and impl blocks.
+    pub fn register_signatures(mutref self) {
+        /// For each module in the graph:
+        ///   - FnDecl: register params and return type
+        ///   - StructDecl: register field names and types
+        ///   - EnumDecl: register variant names and tags
+        ///   - TraitDecl: register method signatures and supertraits
+        ///   - ImplDecl: register method signatures on target type
     }
 
     /// Register primitive method surface (language guide 3.6).
-    fn register_primitive_methods(mutref self) {
+    /// Integer methods: toFloat, abs, min, max
+    /// Float methods: toInt, isNan, floor, ceil, sqrt, abs
+    /// Char methods: toInt, isLetter, isDigit
+    /// Bool methods: not
+    pub fn register_primitive_methods(mutref self) {
+        /// Register each primitive type's methods in func_types
+        /// keyed by "TypeName.methodName".
     }
 
     /// Pass 2: check all function bodies.
-    fn check_bodies(mutref self) {
+    /// Walks all functions and impl methods, type-checks their bodies.
+    pub fn check_bodies(mutref self) {
+        /// For each function body:
+        ///   - Set currentReturn to the declared return type
+        ///   - Create a local scope with parameters
+        ///   - Check the block expression
+    }
+
+    /// Type-check an expression and return its resolved TypeId.
+    pub fn check_expr(mutref self) -> TypeId {
+        /// Dispatch on expression kind:
+        ///   Literal → infer from token kind
+        ///   Ident → look up in local scope, then module scope
+        ///   Binary → check operands, widening for numerics
+        ///   Unary → check operand, ref/mutref wrapping
+        ///   Call → check callee type, match arg types to params
+        ///   Field → look up field on struct/tuple type
+        ///   Match → check subject and arms
+        ///   If/While/Loop → check sub-expressions
+        ///   Return → check against currentReturn
+        return 0;
+    }
+
+    /// Look up a method on a receiver type.
+    /// Searches: struct inherent methods, primitive methods,
+    /// trait methods (with supertrait chain traversal).
+    pub fn lookup_method(ref self, recv_type: TypeId, method: ref String) -> TypeId {
+        /// 1. Check primitive methods (by type name)
+        /// 2. Check struct/enum inherent methods
+        /// 3. Check trait methods with supertrait chain
+        return 0;
+    }
+
+    /// Search a trait and its supertraits for a method.
+    pub fn search_trait_chain(ref self, trait_name: ref String, method: ref String) -> TypeId {
+        /// Check this trait's methods.
+        /// If not found, recurse into supertraits.
+        return 0;
+    }
+
+    /// Check numeric widening: return the wider type, or 0 if incompatible.
+    pub fn numeric_widen(ref self, a: TypeId, b: TypeId) -> TypeId {
+        /// Same family (int/uint/float): return the wider one.
+        /// Different families: incompatible.
+        return 0;
+    }
+
+    /// Check if src type is assignable to dst type.
+    pub fn is_assignable(ref self, src: TypeId, dst: TypeId) -> Bool {
+        if src == dst { return true; }
+        /// Never is assignable to anything.
+        /// Unknown is compatible with anything during checking.
+        /// Same-name enum/struct with compatible type args.
+        return false;
+    }
+
+    /// Report a type error.
+    pub fn error(mutref self, message: String) {
+        self.errors.push(message);
     }
 }

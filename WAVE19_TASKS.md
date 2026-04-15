@@ -108,15 +108,15 @@
 
 ## 11. Stage 2 Compiler: Type System
 
-- [ ] **11a.** typetable.fuse: define TypeId, TypeKind, TypeEntry matching Stage 1
-- [ ] **11b.** typetable.fuse: implement type interning with dedup key
-- [ ] **11c.** typetable.fuse: implement all primitive type registration
-- [ ] **11d.** typetable.fuse: implement compound type constructors (Tuple, Array, Ref, Func, Struct, Enum)
-- [ ] **11e.** checker.fuse: implement two-pass checking (signatures then bodies)
-- [ ] **11f.** checker.fuse: implement expression type checking for all expression kinds
-- [ ] **11g.** checker.fuse: implement trait method lookup with supertrait chain
-- [ ] **11h.** checker.fuse: implement numeric widening and assignability
-- [ ] **11i.** E2e proof: type-check a program with structs, enums, generics, traits
+- [x] **11a.** typetable.fuse: define TypeId, TypeKind, TypeEntry matching Stage 1
+- [x] **11b.** typetable.fuse: implement type interning with dedup key
+- [x] **11c.** typetable.fuse: implement all primitive type registration
+- [x] **11d.** typetable.fuse: implement compound type constructors (Tuple, Array, Ref, Func, Struct, Enum)
+- [x] **11e.** checker.fuse: implement two-pass checking (signatures then bodies)
+- [x] **11f.** checker.fuse: implement expression type checking for all expression kinds
+- [x] **11g.** checker.fuse: implement trait method lookup with supertrait chain
+- [x] **11h.** checker.fuse: implement numeric widening and assignability
+- [x] **11i.** E2e proof: type-check a program with structs, enums, generics, traits
 
 ## 12. Stage 2 Compiler: HIR and Liveness
 

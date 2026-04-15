@@ -123,6 +123,10 @@ const (
 	Hash       // #
 	Question   // ?
 	QDot       // ?.
+
+	// Comment tokens (only emitted by TokenizeWithComments).
+	LineComment  // // ...
+	BlockComment // /* ... */
 )
 
 var kindNames = [...]string{
@@ -229,6 +233,9 @@ var kindNames = [...]string{
 	Hash:       "#",
 	Question:   "?",
 	QDot:       "?.",
+
+	LineComment:  "LINE_COMMENT",
+	BlockComment: "BLOCK_COMMENT",
 }
 
 func (k TokenKind) String() string {

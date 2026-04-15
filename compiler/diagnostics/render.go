@@ -78,6 +78,81 @@ type JSONDiagnostic struct {
 	Message  string `json:"message"`
 }
 
+// RenderTextColor renders diagnostics with optional ANSI color.
+func RenderTextColor(diags []Diagnostic, sources map[string][]byte, color bool) string {
+	var b strings.Builder
+	for _, d := range diags {
+		sevStr := d.Severity.String()
+		sevCode := SeverityColor(d.Severity)
+
+		b.WriteString(Colorize(sevStr, sevCode, color))
+		if d.Span.File != "" {
+			loc := fmt.Sprintf("[%s:%d:%d]", d.Span.File, d.Span.Start.Line, d.Span.Start.Col)
+			b.WriteString(Colorize(loc, ColorDim, color))
+		}
+		b.WriteString(": ")
+		b.WriteString(d.Message)
+		b.WriteByte('\n')
+
+		// Show source context if available.
+		if d.Span.File != "" && d.Span.Start.Line > 0 {
+			if src, ok := sources[d.Span.File]; ok {
+				line := getLine(src, d.Span.Start.Line)
+				if line != "" {
+					b.WriteString("  ")
+					b.WriteString(line)
+					b.WriteByte('\n')
+					col := d.Span.Start.Col
+					if col > 0 {
+						b.WriteString("  ")
+						b.WriteString(strings.Repeat(" ", col-1))
+						length := d.Span.End.Col - d.Span.Start.Col
+						if length <= 0 {
+							length = 1
+						}
+						carets := strings.Repeat("^", length)
+						b.WriteString(Colorize(carets, sevCode, color))
+						b.WriteByte('\n')
+					}
+				}
+			}
+		}
+	}
+	return b.String()
+}
+
+// DiagSummary returns a human-readable summary like "2 errors, 1 warning".
+func DiagSummary(diags []Diagnostic, color bool) string {
+	var errors, warnings int
+	for _, d := range diags {
+		switch d.Severity {
+		case Error:
+			errors++
+		case Warning:
+			warnings++
+		}
+	}
+	if errors == 0 && warnings == 0 {
+		return ""
+	}
+	var parts []string
+	if errors > 0 {
+		s := fmt.Sprintf("%d error", errors)
+		if errors != 1 {
+			s += "s"
+		}
+		parts = append(parts, Colorize(s, ColorBoldRed, color))
+	}
+	if warnings > 0 {
+		s := fmt.Sprintf("%d warning", warnings)
+		if warnings != 1 {
+			s += "s"
+		}
+		parts = append(parts, Colorize(s, ColorBoldYellow, color))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // RenderJSON renders diagnostics as a JSON array.
 func RenderJSON(diags []Diagnostic) string {
 	jdiags := make([]JSONDiagnostic, len(diags))

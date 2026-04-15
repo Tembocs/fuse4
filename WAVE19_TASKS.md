@@ -155,14 +155,14 @@
 
 ## 16. CLI Completeness
 
-- [ ] **16a.** Wire `fuse run`: after build, execute the binary and forward exit code
-- [ ] **16b.** Wire `fuse run`: forward stdout/stderr from child process
-- [ ] **16c.** Implement `fuse fmt`: read .fuse file, re-emit with consistent formatting
-- [ ] **16d.** Implement `fuse doc`: extract `///` doc comments from public items, emit markdown
-- [ ] **16e.** Implement `fuse test`: discover `*_test.fuse` files, compile and run, report pass/fail
-- [ ] **16f.** Implement `fuse repl`: read-eval-print loop with line-by-line compilation
-- [ ] **16g.** E2e proof: `fuse run hello.fuse` prints "hello" and exits 0
-- [ ] **16h.** E2e proof: `fuse check bad.fuse` reports error and exits 1
+- [x] **16a.** Wire `fuse run`: after build, execute the binary and forward exit code
+- [x] **16b.** Wire `fuse run`: forward stdout/stderr from child process
+- [x] **16c.** Implement `fuse fmt`: read .fuse file, re-emit with consistent formatting
+- [x] **16d.** Implement `fuse doc`: extract `///` doc comments from public items, emit markdown
+- [x] **16e.** Implement `fuse test`: discover `*_test.fuse` files, compile and run, report pass/fail
+- [x] **16f.** Implement `fuse repl`: read-eval-print loop with line-by-line compilation
+- [x] **16g.** E2e proof: `fuse run hello.fuse` prints "hello" and exits 0
+- [x] **16h.** E2e proof: `fuse check bad.fuse` reports error and exits 1
 
 ## 17. Native Backend (mandatory — required to retire C)
 

@@ -21,8 +21,9 @@ type Lexer struct {
 	startLine int
 	startCol  int
 
-	tokens []Token
-	errors []diagnostics.Diagnostic
+	tokens       []Token
+	errors       []diagnostics.Diagnostic
+	keepComments bool // when true, emit LineComment/BlockComment tokens
 }
 
 // New creates a lexer for the given source.
@@ -53,6 +54,14 @@ func (l *Lexer) Tokenize() ([]Token, []diagnostics.Diagnostic) {
 	l.markStart()
 	l.emit(EOF, "")
 	return l.tokens, l.errors
+}
+
+// TokenizeWithComments lexes the full source, preserving line and block
+// comments as LineComment and BlockComment tokens in the stream. This is
+// used by the formatter to round-trip comments through formatting.
+func (l *Lexer) TokenizeWithComments() ([]Token, []diagnostics.Diagnostic) {
+	l.keepComments = true
+	return l.Tokenize()
 }
 
 // --- character access ---
@@ -225,6 +234,9 @@ func (l *Lexer) scanLineComment() {
 	for !l.atEnd() && l.peek() != '\n' {
 		l.advance()
 	}
+	if l.keepComments {
+		l.emitCurrent(LineComment)
+	}
 	// the \n will be consumed by skipWhitespace
 }
 
@@ -247,6 +259,8 @@ func (l *Lexer) scanBlockComment() {
 	}
 	if depth > 0 {
 		l.errorf("unterminated block comment")
+	} else if l.keepComments {
+		l.emitCurrent(BlockComment)
 	}
 }
 

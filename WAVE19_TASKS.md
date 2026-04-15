@@ -153,40 +153,51 @@
 - [x] **15d.** main.fuse: implement source file reading
 - [x] **15e.** E2e proof: Stage 2 compiles a hello-world Fuse program
 
-## 16. Native Backend (mandatory — required to retire C)
+## 16. CLI Completeness
 
-- [ ] **16a.** Implement x86-64 instruction encoding for all MIR instruction kinds
-- [ ] **16b.** Implement register allocation (linear scan or graph coloring)
-- [ ] **16c.** Implement System V calling convention (Linux/macOS)
-- [ ] **16d.** Implement Win64 calling convention (Windows)
-- [ ] **16e.** Implement ELF object file emission (Linux)
-- [ ] **16f.** Implement PE/COFF object file emission (Windows)
-- [ ] **16g.** Implement Mach-O object file emission (macOS)
-- [ ] **16h.** Implement linker integration or bundled linker
-- [ ] **16i.** E2e proof: compile and run hello-world without gcc on each platform
-- [ ] **16j.** Verify all existing e2e tests pass through native backend
-- [ ] **16k.** Remove C11 backend from the compiler path (retire gcc dependency)
+- [ ] **16a.** Wire `fuse run`: after build, execute the binary and forward exit code
+- [ ] **16b.** Wire `fuse run`: forward stdout/stderr from child process
+- [ ] **16c.** Implement `fuse fmt`: read .fuse file, re-emit with consistent formatting
+- [ ] **16d.** Implement `fuse doc`: extract `///` doc comments from public items, emit markdown
+- [ ] **16e.** Implement `fuse test`: discover `*_test.fuse` files, compile and run, report pass/fail
+- [ ] **16f.** Implement `fuse repl`: read-eval-print loop with line-by-line compilation
+- [ ] **16g.** E2e proof: `fuse run hello.fuse` prints "hello" and exits 0
+- [ ] **16h.** E2e proof: `fuse check bad.fuse` reports error and exits 1
 
-## 17. Runtime Rewrite in Fuse (mandatory — required to retire C)
+## 17. Native Backend (mandatory — required to retire C)
 
-- [ ] **17a.** Rewrite runtime/src/mem.c in Fuse: alloc, realloc, free via platform syscalls
-- [ ] **17b.** Rewrite runtime/src/panic.c in Fuse: panic, abort via platform syscalls
-- [ ] **17c.** Rewrite runtime/src/io.c in Fuse: stdout, stderr, file I/O via platform syscalls
-- [ ] **17d.** Rewrite runtime/src/proc.c in Fuse: argc, argv, env, exit via platform syscalls
-- [ ] **17e.** Rewrite runtime/src/time.c in Fuse: monotonic clock via platform syscalls
-- [ ] **17f.** Rewrite runtime/src/thread.c in Fuse: thread spawn via platform syscalls
-- [ ] **17g.** Rewrite runtime/src/sync.c in Fuse: mutex, cond via platform syscalls
-- [ ] **17h.** E2e proof: all runtime tests pass with Fuse runtime (no C runtime linked)
-- [ ] **17i.** Remove C runtime source files from the build path
+- [ ] **17a.** Implement x86-64 instruction encoding for all MIR instruction kinds
+- [ ] **17b.** Implement register allocation (linear scan or graph coloring)
+- [ ] **17c.** Implement System V calling convention (Linux/macOS)
+- [ ] **17d.** Implement Win64 calling convention (Windows)
+- [ ] **17e.** Implement ELF object file emission (Linux)
+- [ ] **17f.** Implement PE/COFF object file emission (Windows)
+- [ ] **17g.** Implement Mach-O object file emission (macOS)
+- [ ] **17h.** Implement linker integration or bundled linker
+- [ ] **17i.** E2e proof: compile and run hello-world without gcc on each platform
+- [ ] **17j.** Verify all existing e2e tests pass through native backend
+- [ ] **17k.** Remove C11 backend from the compiler path (retire gcc dependency)
 
-## 18. Self-Hosting Verification
+## 18. Runtime Rewrite in Fuse (mandatory — required to retire C)
 
-- [ ] **18a.** Stage 1 compiles Stage 2 successfully (no errors)
-- [ ] **18b.** Stage 2 compiles a test program correctly
-- [ ] **18c.** Stage 2 compiles itself successfully
-- [ ] **18d.** Compare Stage 1→Stage 2 output with Stage 2→Stage 2 output (reproducibility)
-- [ ] **18e.** Add bootstrap health gate to CI (release-blocking)
-- [ ] **18f.** Freeze Stage 1 as archival bootstrap tool
-- [ ] **18g.** Remove Go from active build workflow
-- [ ] **18h.** Remove C from active build workflow
-- [ ] **18i.** Verify: `fuse build` produces working binaries with no Go, no C, no gcc
+- [ ] **18a.** Rewrite runtime/src/mem.c in Fuse: alloc, realloc, free via platform syscalls
+- [ ] **18b.** Rewrite runtime/src/panic.c in Fuse: panic, abort via platform syscalls
+- [ ] **18c.** Rewrite runtime/src/io.c in Fuse: stdout, stderr, file I/O via platform syscalls
+- [ ] **18d.** Rewrite runtime/src/proc.c in Fuse: argc, argv, env, exit via platform syscalls
+- [ ] **18e.** Rewrite runtime/src/time.c in Fuse: monotonic clock via platform syscalls
+- [ ] **18f.** Rewrite runtime/src/thread.c in Fuse: thread spawn via platform syscalls
+- [ ] **18g.** Rewrite runtime/src/sync.c in Fuse: mutex, cond via platform syscalls
+- [ ] **18h.** E2e proof: all runtime tests pass with Fuse runtime (no C runtime linked)
+- [ ] **18i.** Remove C runtime source files from the build path
+
+## 19. Self-Hosting Verification
+
+- [ ] **19a.** Stage 1 compiles Stage 2 successfully (no errors)
+- [ ] **19b.** Stage 2 compiles a test program correctly
+- [ ] **19c.** Stage 2 compiles itself successfully
+- [ ] **19d.** Compare Stage 1->Stage 2 output with Stage 2->Stage 2 output (reproducibility)
+- [ ] **19e.** Add bootstrap health gate to CI (release-blocking)
+- [ ] **19f.** Freeze Stage 1 as archival bootstrap tool
+- [ ] **19g.** Remove Go from active build workflow
+- [ ] **19h.** Remove C from active build workflow
+- [ ] **19i.** Verify: `fuse build` produces working binaries with no Go, no C, no gcc

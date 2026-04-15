@@ -105,6 +105,9 @@ func NewChecker(types *typetable.TypeTable, graph *resolve.ModuleGraph) *Checker
 
 // Check runs all checking phases. Modules are checked uniformly (user and stdlib alike).
 func (c *Checker) Check() {
+	// Register built-in types.
+	c.Types.RegisterStringType()
+
 	// Pass 1: register all signatures
 	for _, key := range c.Graph.Order {
 		mod := c.Graph.Modules[key]
@@ -113,6 +116,9 @@ func (c *Checker) Check() {
 
 	// Register primitive methods after signatures but before body checking.
 	c.registerPrimitiveMethods()
+
+	// Register built-in functions (print, println).
+	c.registerBuiltinFunctions()
 
 	// Pass 2: check all bodies
 	for _, key := range c.Graph.Order {
@@ -219,6 +225,16 @@ func (c *Checker) registerEnum(mod *resolve.Module, e *ast.EnumDecl) {
 		}
 		c.Types.SetEnumFields(ety, maxPayloads)
 	}
+}
+
+func (c *Checker) registerBuiltinFunctions() {
+	strTy := c.Types.InternStruct("core", "String", nil)
+	// println(s: String) -> ()
+	printlnTy := c.Types.InternFunc([]typetable.TypeId{strTy}, c.Types.Unit)
+	c.funcTypes["println"] = printlnTy
+	// print(s: String) -> ()
+	printTy := c.Types.InternFunc([]typetable.TypeId{strTy}, c.Types.Unit)
+	c.funcTypes["print"] = printTy
 }
 
 func (c *Checker) registerTypeAlias(_ *resolve.Module, ta *ast.TypeAliasDecl) {

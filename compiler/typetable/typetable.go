@@ -289,6 +289,14 @@ func (tt *TypeTable) InternChannel(elem TypeId) TypeId {
 	return tt.insert(TypeEntry{Kind: KindChannel, Elem: elem, Name: "Chan"})
 }
 
+// RegisterStringType sets up the String type with data pointer and length fields.
+func (tt *TypeTable) RegisterStringType() TypeId {
+	strTy := tt.InternStruct("core", "String", nil)
+	ptrTy := tt.InternPtr(tt.U8)
+	tt.SetStructFields(strTy, []string{"data", "len"}, []TypeId{ptrTy, tt.USize})
+	return strTy
+}
+
 // --- query helpers ---
 
 // LookupPrimitive returns the TypeId for a primitive type name, or InvalidTypeId.

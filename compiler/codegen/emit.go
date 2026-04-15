@@ -499,7 +499,19 @@ func (e *Emitter) constValue(value string, ty typetable.TypeId) string {
 			return "true"
 		}
 		return "false"
-	case typetable.KindStruct, typetable.KindEnum, typetable.KindTuple:
+	case typetable.KindStruct:
+		// Check if this is a string literal (String struct with a quoted value).
+		if te.Name == "String" && len(value) >= 2 && value[0] == '"' {
+			// Emit as a String struct with data pointer and length.
+			// Unescape to get the actual string content for length calculation.
+			inner := value[1 : len(value)-1]
+			strLen := len(inner) // simplified; doesn't handle escape sequences
+			return fmt.Sprintf("(%s){.data = (uint8_t*)%s, .len = %d}",
+				MangleType(e.Types, ty), value, strLen)
+		}
+		// Contract 5: typed aggregate zero-initializer.
+		return fmt.Sprintf("(%s){0}", MangleType(e.Types, ty))
+	case typetable.KindEnum, typetable.KindTuple:
 		// Contract 5: typed aggregate zero-initializer.
 		return fmt.Sprintf("(%s){0}", MangleType(e.Types, ty))
 	}

@@ -235,6 +235,10 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 	// Direct function call: emit callee name as a const reference.
 	var callee mir.LocalId
 	if ident, ok := n.Callee.(*hir.IdentExpr); ok {
+		// Built-in I/O functions: lower to runtime calls.
+		if ident.Name == "println" || ident.Name == "print" {
+			return l.lowerPrintCall(dest, ident.Name, n.Args)
+		}
 		// Check if this ident refers to a local that holds a closure reference.
 		if localId, isLocal := l.vars[ident.Name]; isLocal {
 			if fnName, isClosure := l.closureFns[localId]; isClosure {
@@ -580,6 +584,52 @@ func (l *Lowerer) lowerContinue() mir.LocalId {
 	ctx := l.loops[len(l.loops)-1]
 	l.b.TermGoto(ctx.ContinueBlock)
 	return l.constUnit()
+}
+
+// lowerPrintCall emits a runtime call for print/println built-in functions.
+func (l *Lowerer) lowerPrintCall(dest mir.LocalId, name string, args []hir.Expr) mir.LocalId {
+	// Lower the string argument.
+	if len(args) == 0 {
+		if name == "println" {
+			// println() with no args: just write a newline.
+			callee := l.b.NewTemp(l.Types.Unknown)
+			l.b.EmitConst(callee, l.Types.Unknown, "fuse_rt_io_write_stdout")
+			nlData := l.b.NewTemp(l.Types.Unknown)
+			l.b.EmitConst(nlData, l.Types.Unknown, "(uint8_t*)\"\\n\"")
+			nlLen := l.b.NewTemp(l.Types.USize)
+			l.b.EmitConst(nlLen, l.Types.USize, "1")
+			l.b.EmitCall(dest, callee, []mir.LocalId{nlData, nlLen}, l.Types.Unit, false)
+		}
+		return dest
+	}
+
+	strArg := l.lowerExpr(args[0])
+
+	// Extract .data and .len fields from the String struct.
+	ptrTy := l.Types.InternPtr(l.Types.U8)
+	dataLocal := l.b.NewTemp(ptrTy)
+	l.b.EmitFieldRead(dataLocal, strArg, "data", ptrTy)
+	lenLocal := l.b.NewTemp(l.Types.USize)
+	l.b.EmitFieldRead(lenLocal, strArg, "len", l.Types.USize)
+
+	// Call fuse_rt_io_write_stdout(data, len).
+	callee := l.b.NewTemp(l.Types.Unknown)
+	l.b.EmitConst(callee, l.Types.Unknown, "fuse_rt_io_write_stdout")
+	l.b.EmitCall(dest, callee, []mir.LocalId{dataLocal, lenLocal}, l.Types.Unit, false)
+
+	// For println, also write a newline.
+	if name == "println" {
+		nlCallee := l.b.NewTemp(l.Types.Unknown)
+		l.b.EmitConst(nlCallee, l.Types.Unknown, "fuse_rt_io_write_stdout")
+		nlData := l.b.NewTemp(ptrTy)
+		l.b.EmitConst(nlData, ptrTy, "(uint8_t*)\"\\n\"")
+		nlLen := l.b.NewTemp(l.Types.USize)
+		l.b.EmitConst(nlLen, l.Types.USize, "1")
+		nlDest := l.b.NewTemp(l.Types.Unit)
+		l.b.EmitCall(nlDest, nlCallee, []mir.LocalId{nlData, nlLen}, l.Types.Unit, false)
+	}
+
+	return dest
 }
 
 // --- compound expressions ---

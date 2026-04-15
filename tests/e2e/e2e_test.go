@@ -401,6 +401,26 @@ fn main() -> I32 {
 		WantExit: 42,
 	},
 
+	// ===== Wave 18 Phase 06: Strings and I/O =====
+	{
+		Name: "w18_println_hello",
+		Source: `fn main() -> I32 {
+	println("hello");
+	return 0;
+}`,
+		WantExit:   0,
+		WantStdout: "hello",
+	},
+	{
+		Name: "w18_print_no_newline",
+		Source: `fn main() -> I32 {
+	print("world");
+	return 0;
+}`,
+		WantExit:   0,
+		WantStdout: "world",
+	},
+
 	// ===== Wave 18 Phase 02: Closures =====
 	{
 		Name: "w18_closure_no_capture",

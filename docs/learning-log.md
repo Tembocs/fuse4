@@ -1152,3 +1152,230 @@ program that passes, or has been explicitly descoped from the language guide
 with a rationale. The minimum bar for Wave 18 readiness is: closures, I/O
 (print/println), iteration (for..in), trait dispatch, and Drop must all work
 end-to-end.
+
+### L017 — Wave 18 implementation status: 29 features proven, 11 deferred
+
+Date: 2026-04-15
+Discovered during: Wave 18 / Language Completeness implementation
+
+**Reproducer**:
+Not applicable. This entry records the implementation results of Wave 18
+and the rationale for each deferral.
+
+**What was tried first**:
+All 10 phases of Wave 18 were attempted in order. Each feature was
+implemented, tested with an e2e proof program, and verified against the
+full test suite before proceeding to the next.
+
+**Root cause**:
+Of the 40 items in L016, 29 were implemented and proven with e2e tests.
+The remaining 11 are blocked by deep type system features (generic impl
+blocks, associated types, Iterator protocol) that require architectural
+work beyond the scope of a single wave.
+
+**Spec gap**:
+The language guide specifies associated types, generic impl blocks, and
+the Iterator protocol but does not define how these features interact with
+AST-level monomorphization. The monomorphizer operates before type checking
+and cannot resolve impl-level type parameters without type information.
+
+**Plan gap**:
+Wave 18 Phase 07 (Stdlib Core) tasks 01–04 require generic impl blocks
+(`impl[T] Option[T]`), which in turn require impl-level type parameter
+scoping in the checker and specialization in the monomorphizer. These were
+not identified as prerequisite tasks — the plan assumed they would fall
+out from Wave 17's generic function support.
+
+**Fix**:
+The following features were implemented in Wave 18 with e2e proof programs:
+
+## Implemented (29 proof programs)
+
+1. **Tuple construction and field access** — `(10, 32)` with `.0`, `.1`.
+   Implemented: codegen emits anonymous C structs with `f_0`, `f_1` fields.
+
+2. **Struct initialization and field access** — `Point { x: 19, y: 23 }`.
+   Implemented: `SetStructFields` stores named field types on the type
+   entry; codegen emits full struct definitions with named fields and
+   named field initializers.
+
+3. **Ownership: ref parameters** — `fn inc(x: ref I32) -> I32`.
+   Implemented: `resolveParamTypes` wraps param types with `InternRef`
+   when `Ownership == KwRef`; codegen emits `int32_t*` parameters and
+   auto-derefs borrow locals in expressions via `localValue()`.
+
+4. **Ownership: mutref parameters** — `fn set_val(x: mutref I32, v: I32)`.
+   Implemented: mutref params produce mutable pointer types; codegen
+   emits `(*dest) = src` for copy-into-borrow assignments.
+
+5. **Loop with break value** — `let x = loop { break 42; };`.
+   Implemented: checker infers break value type via `findBreakType`;
+   lowerer uses correct type for break local.
+
+6. **Const declarations** — `const N: I32 = 42;`.
+   Implemented: checker registers const types and literal values;
+   bridge inlines const literals at use sites.
+
+7. **Type aliases** — `type Score = I32;`.
+   Implemented: checker resolves aliases to underlying types during
+   path type resolution.
+
+8. **Closures without captures** — `fn(x: I32) -> I32 { return x + 1; }`.
+   Implemented: closure body lifted to standalone function without env
+   parameter; call sites reference lifted function by name via
+   `closureFns` map.
+
+9. **Closures with captures** — `fn(x: I32) -> I32 { return x + offset; }`.
+   Implemented: env struct with captured variable fields constructed at
+   closure site; passed as first argument to lifted function; env struct
+   type gets named fields via `SetStructFields`.
+
+10. **Inherent methods** — `impl Counter { fn get(ref self) -> I32 }`.
+    Implemented: `resolveImplParamTypes` substitutes impl target type
+    for `self` params; `localTypes` map tracks resolved types for all
+    locals; method calls lower to `Fuse_<name>(&receiver)`.
+
+11. **Trait impl dispatch** — `impl Getter : Box { fn value(ref self) }`.
+    Implemented: trait impl methods register in `funcTypes` under
+    `TypeName.method`; `lookupMethod` resolves through struct methods,
+    primitive methods, and trait methods with supertrait chain.
+
+12. **Drop destructors at scope exit** — `impl Drop : Resource { fn drop }`.
+    Implemented: `DropTypes()` exposes types with Drop impls; codegen
+    emits `Fuse_drop(&local)` for named locals before `TermReturn`.
+
+13. **String literals** — `let s = "hello";`.
+    Implemented: `RegisterStringType` creates `core.String` with
+    `data: Ptr[U8]` and `len: USize` fields; string constants emit as
+    `(Fuse_core__String){.data = (uint8_t*)"hello", .len = 5}`.
+
+14. **print/println to stdout** — `println("hello");`.
+    Implemented: built-in functions registered in checker; lowered to
+    `fuse_rt_io_write_stdout(data, len)` runtime calls; println appends
+    newline.
+
+15. **Generic type inference from arguments** — `identity(42)` without
+    explicit `[I32]`.
+    Implemented: `inferTypeArgs` deduces generic params from literal
+    argument types; `rewriteExprCalls` rewrites inferred calls.
+
+16. **Struct patterns in match** — `match p { Point { x, y } => x + y }`.
+    Implemented: `StructPattern` added to HIR; bridge lowers `StructPat`
+    to HIR; lowerer emits field reads for bindings.
+
+17. **Tuple patterns in match** — `match t { (a, b) => a + b }`.
+    Implemented: `TuplePattern` added to HIR; lowerer emits `f_0`, `f_1`
+    field reads for tuple element bindings.
+
+18. **Unsafe enforcement** — extern calls outside `unsafe {}` rejected.
+    Implemented: `BlockExpr.Unsafe` flag set by parser; checker tracks
+    `inUnsafe` context; extern calls outside produce diagnostic.
+
+19. **Recursive type detection** — `struct Node { next: Node }` rejected.
+    Implemented: `registerStruct` checks if any field type equals the
+    struct's own type and emits diagnostic.
+
+20. **OS exit** — `exit(42)`.
+    Implemented: built-in function lowered to `fuse_rt_proc_exit`.
+
+21. **String.len field** — `s.len` on a String.
+    Implemented: String struct has named `len` field; field access works.
+
+22. **Generic enum helper with inference** — `unwrap_or(Some(42), 0)`.
+    Implemented: generic function with Option[T] param infers T from
+    argument; monomorphizer specializes.
+
+23. **Comparison operators in control flow** — `if a < b { return 42; }`.
+    Implemented: works end-to-end.
+
+24. **Multi-variant enum dispatch** — `match s { Circle(r) => ..., Rect(w, h) => ... }`.
+    Implemented: enum with multiple payload variants dispatches correctly.
+
+25. **Nested struct field access** — `o.inner.val`.
+    Implemented: chained field reads lower to sequential MIR field reads.
+
+26. **String escape sequences** — `"hello\tworld"`.
+    Implemented: lexer handles escape sequences; emitted as C escape
+    sequences.
+
+27. **Multiple return paths** — `if x > 100 { return 3; } ... return 0;`.
+    Implemented: works end-to-end.
+
+28. **While loop with mutation** — `while i < 10 { i = i + 1; sum = sum + i; }`.
+    Implemented: works end-to-end.
+
+29. **Auto-deref for borrow types** — `ref` and `mutref` locals
+    transparently deref in expressions.
+    Implemented: `checkIdent` returns inner type for ref/mutref locals;
+    codegen emits `(*_lN)` for borrow-typed locals in value positions.
+
+## Deferred (11 items, with rationale)
+
+30. **for..in iteration** — requires array literals (not parsed as
+    expressions) and the Iterator trait protocol (associated types,
+    `next()` returning `Option[T]`). Blocked on items 33, 34, 36.
+
+31. **Optional chaining (?.)** — requires Option-aware desugaring that
+    checks the subject type and branches on `Some`/`None`. Blocked on
+    generic impl methods for Option.
+
+32. **Generic impl blocks** — `impl[T] Option[T] { fn unwrap_or(...) }`.
+    The monomorphizer operates at AST level before type checking.
+    Impl-level type parameters require type information to specialize,
+    creating a circular dependency. Workaround: standalone generic
+    helper functions (`fn unwrap_or[T](opt: Option[T], ...)`) work
+    and are used throughout the test suite.
+
+33. **Associated types in traits** — `type Item` in Iterator. Requires
+    extending the type table and checker to track trait-associated types
+    and substitute them during impl resolution.
+
+34. **Iterator/IntoIterator traits** — depend on associated types (33)
+    and generic impl blocks (32).
+
+35. **Trait bounds enforcement** — `fn foo[T: Display](x: T)` parses
+    but bounds are not validated. Requires checking that the concrete
+    type at each call site has the required trait impl.
+
+36. **Where clause enforcement** — parsed but not checked. Same
+    mechanism as trait bounds.
+
+37. **Trait default method implementations** — requires method body
+    inheritance from trait to impl. The bridge and lowerer would need
+    to look up default bodies when an impl omits a method.
+
+38. **Module visibility (pub)** — `Symbol.Public` field exists in the
+    resolver. Enforcement requires cross-module access checking in the
+    checker, which is straightforward but not yet wired.
+
+39. **Stdlib compilation** — stdlib `.fuse` files have stub method
+    bodies that depend on generic impl blocks (32), associated types
+    (33), and Iterator (34). The stdlib cannot compile through the
+    pipeline until those are implemented.
+
+40. **@value struct / @rank(N)** — decorators are parsed but no
+    auto-derivation or lock ordering enforcement exists.
+
+**Cascading effects**:
+The deferred items form two dependency chains:
+- Generic impls (32) → associated types (33) → Iterator (34) → for..in (30)
+- Generic impls (32) → stdlib compilation (39) → Stage 2 re-verify
+
+These must be resolved before Wave 19 (Retirement of Go and C).
+
+**Architectural lesson**:
+AST-level monomorphization (before type checking) is effective for generic
+functions but cannot handle generic impl blocks because impl-level type
+parameters require type information to scope and specialize. A future
+architecture should either: (a) move monomorphization after type checking
+(HIR-level), or (b) implement a two-pass approach where the first pass
+collects type information and the second specializes impl methods.
+
+Standalone generic helper functions (`fn unwrap_or[T](opt: Option[T], ...)`)
+are a viable workaround for the bootstrap compiler: they provide the same
+functionality as methods but bypass the impl-level scoping problem.
+
+**Verification**:
+29 e2e proof programs pass. 61 total e2e tests pass (including 32
+pre-existing). 17 Go packages compile and pass all unit tests. Zero
+regressions from Wave 17 or earlier.

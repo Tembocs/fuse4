@@ -1,26 +1,25 @@
 /// Hash support for the core standard library.
+/// Uses FNV-1a inspired hashing for the bootstrap compiler.
 
-/// Hasher accumulates bytes and produces a hash value.
+/// Hasher accumulates values and produces a hash.
 pub struct Hasher {
     state: U64,
 }
 
 impl Hasher {
-    /// Create a new hasher with the default seed.
+    /// Create a new hasher with the FNV offset basis.
     pub fn new() -> Hasher {
-        Hasher { state: 0u64 }
+        return Hasher { state: 14695981039346656037u64 };
     }
 
-    /// Feed bytes into the hasher.
-    pub fn write(mutref self, bytes: ref [U8]) {
-    }
-
-    /// Feed a single U64 into the hasher.
+    /// Feed a single U64 into the hasher (FNV-1a step).
     pub fn write_u64(mutref self, val: U64) {
+        self.state = self.state ^ val;
+        self.state = self.state * 1099511628211u64;
     }
 
     /// Finalize and return the hash value.
     pub fn finish(ref self) -> U64 {
-        self.state
+        return self.state;
     }
 }

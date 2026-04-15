@@ -1,4 +1,6 @@
 /// Formatting module: Formatter for building formatted output.
+/// Bootstrap limitation: write operations are no-ops until pointer
+/// write and memory allocation support is added to codegen.
 
 /// Formatter is a buffer for building formatted output.
 pub struct Formatter {
@@ -12,13 +14,13 @@ impl Formatter {
     }
 
     /// Write a string to the formatter.
-    /// Bootstrap: stub implementation.
+    /// Bootstrap: no-op (requires string concat via pointer write).
     pub fn write_str(mutref self, s: ref String) -> Result {
         return Ok(());
     }
 
     /// Write a single character.
-    /// Bootstrap: stub implementation.
+    /// Bootstrap: no-op (requires buffer append via pointer write).
     pub fn write_char(mutref self, c: Char) -> Result {
         return Ok(());
     }

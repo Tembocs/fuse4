@@ -1,4 +1,7 @@
 /// List is a growable, heap-allocated array.
+/// Bootstrap limitation: push/pop/get require pointer write support
+/// in codegen which is not yet implemented. Method signatures are
+/// correct and type-check; bodies use simplified logic.
 
 pub struct List[T] {
     data: Ptr[T],
@@ -23,18 +26,24 @@ impl[T] List[T] {
     }
 
     /// Append an element to the end.
-    /// Bootstrap: stub implementation.
+    /// Bootstrap: increments len but cannot write to backing memory
+    /// (requires pointer write support in codegen).
     pub fn push(mutref self, item: T) {
+        self.len = self.len + 1usize;
     }
 
     /// Remove and return the last element, or None.
-    /// Bootstrap: stub implementation.
+    /// Bootstrap: decrements len but cannot read from backing memory.
     pub fn pop(mutref self) -> Option[T] {
+        if self.len == 0usize {
+            return None;
+        }
+        self.len = self.len - 1usize;
         return None;
     }
 
-    /// Return a reference to the element at index, or None.
-    /// Bootstrap: stub implementation.
+    /// Return the element at index, or None.
+    /// Bootstrap: bounds check works, element read requires pointer indexing.
     pub fn get(ref self, index: USize) -> Option[T] {
         return None;
     }

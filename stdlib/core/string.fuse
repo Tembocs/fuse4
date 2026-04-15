@@ -23,26 +23,38 @@ impl String {
         return self.len == 0usize;
     }
 
-    /// Return a byte slice of the string contents.
-    /// Bootstrap: returns the raw data pointer.
+    /// Return the raw data pointer.
     pub fn as_bytes(ref self) -> Ptr[U8] {
         return self.data;
+    }
+
+    /// Convert to uppercase (ASCII only).
+    /// Bootstrap: requires byte-level iteration (pointer indexing);
+    /// returns self until codegen supports pointer writes.
+    pub fn toUpper(ref self) -> String {
+        return String { data: self.data, len: self.len, cap: self.cap };
+    }
+
+    /// Convert to lowercase (ASCII only).
+    /// Bootstrap: same limitation as toUpper.
+    pub fn toLower(ref self) -> String {
+        return String { data: self.data, len: self.len, cap: self.cap };
     }
 }
 
 impl Equatable : String {
-    fn eq(ref self, other: ref Self) -> Bool {
+    fn eq(ref self, other: ref String) -> Bool {
         return self.len == other.len;
     }
 
-    fn ne(ref self, other: ref Self) -> Bool {
+    fn ne(ref self, other: ref String) -> Bool {
         return self.len != other.len;
     }
 }
 
 impl Clone : String {
     fn clone(ref self) -> String {
-        return self;
+        return String { data: self.data, len: self.len, cap: self.cap };
     }
 }
 

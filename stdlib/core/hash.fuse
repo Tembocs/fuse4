@@ -18,6 +18,34 @@ impl Hasher {
         self.state = self.state * 1099511628211u64;
     }
 
+    /// Feed a single U8 byte into the hasher.
+    pub fn write_u8(mutref self, val: U8) {
+        self.state = self.state ^ val;
+        self.state = self.state * 1099511628211u64;
+    }
+
+    /// Feed a USize value into the hasher.
+    pub fn write_usize(mutref self, val: USize) {
+        self.state = self.state ^ val;
+        self.state = self.state * 1099511628211u64;
+    }
+
+    /// Feed an I32 value into the hasher.
+    pub fn write_i32(mutref self, val: I32) {
+        self.state = self.state ^ val;
+        self.state = self.state * 1099511628211u64;
+    }
+
+    /// Feed a byte buffer into the hasher.
+    pub fn write_bytes(mutref self, data: Ptr[U8], len: USize) {
+        var i = 0usize;
+        while i < len {
+            self.state = self.state ^ data[i];
+            self.state = self.state * 1099511628211u64;
+            i = i + 1usize;
+        }
+    }
+
     /// Finalize and return the hash value.
     pub fn finish(ref self) -> U64 {
         return self.state;

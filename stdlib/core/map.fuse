@@ -1,16 +1,25 @@
 /// Map is a hash map from keys to values.
-/// Bootstrap: insert tracks count; get/remove require hash table
-/// probing which needs pointer iteration loops. Full implementation
-/// is deferred until for loops on pointer ranges are supported.
+/// Uses open addressing with linear probing.
+/// Keys must be hashable (implement a hash() -> U64 method).
 
 pub struct Map[K, V] {
+    keys: Ptr[K],
+    vals: Ptr[V],
+    used: Ptr[U8],
     len: USize,
+    cap: USize,
 }
 
 impl[K, V] Map[K, V] {
-    /// Create an empty map.
+    /// Create an empty map with default initial capacity.
     pub fn new() -> Map[K, V] {
-        return Map { len: 0usize };
+        return Map {
+            keys: Ptr.null(),
+            vals: Ptr.null(),
+            used: Ptr.null(),
+            len: 0usize,
+            cap: 0usize,
+        };
     }
 
     /// Return the number of entries.
@@ -23,19 +32,138 @@ impl[K, V] Map[K, V] {
         return self.len == 0usize;
     }
 
-    /// Insert a key-value pair.
+    /// Insert a key-value pair. Returns the previous value if the key
+    /// was already present, or None if it was new.
     pub fn insert(mutref self, key: K, value: V) -> Option[V] {
+        /// Grow if needed: either first allocation or load > 70%.
+        if self.cap == 0usize {
+            self.grow();
+        } else {
+            let threshold = self.cap * 7usize / 10usize;
+            if self.len >= threshold {
+                self.grow();
+            }
+        }
+
+        let hash = self.hash_key(ref key);
+        var idx = hash % self.cap;
+        while self.used[idx] == 1u8 {
+            if self.keys[idx] == key {
+                /// Key exists — replace value.
+                let old = self.vals[idx];
+                self.vals[idx] = value;
+                return Some(old);
+            }
+            idx = (idx + 1usize) % self.cap;
+        }
+        /// Empty slot found — insert.
+        self.keys[idx] = key;
+        self.vals[idx] = value;
+        self.used[idx] = 1u8;
         self.len = self.len + 1usize;
         return None;
     }
 
     /// Look up a value by key.
     pub fn get(ref self, key: ref K) -> Option[V] {
+        if self.cap == 0usize {
+            return None;
+        }
+        let hash = self.hash_key(key);
+        var idx = hash % self.cap;
+        var checked = 0usize;
+        while checked < self.cap {
+            if self.used[idx] == 0u8 {
+                return None;
+            }
+            if self.keys[idx] == key {
+                let val = self.vals[idx];
+                return Some(val);
+            }
+            idx = (idx + 1usize) % self.cap;
+            checked = checked + 1usize;
+        }
         return None;
     }
 
-    /// Remove a key and return its value.
+    /// Remove a key and return its value, or None.
     pub fn remove(mutref self, key: ref K) -> Option[V] {
+        if self.cap == 0usize {
+            return None;
+        }
+        let hash = self.hash_key(key);
+        var idx = hash % self.cap;
+        var checked = 0usize;
+        while checked < self.cap {
+            if self.used[idx] == 0u8 {
+                return None;
+            }
+            if self.keys[idx] == key {
+                let val = self.vals[idx];
+                self.used[idx] = 0u8;
+                self.len = self.len - 1usize;
+                /// Rehash subsequent entries to fill the gap.
+                self.rehash_after_remove(idx);
+                return Some(val);
+            }
+            idx = (idx + 1usize) % self.cap;
+            checked = checked + 1usize;
+        }
         return None;
+    }
+
+    /// Hash a key using FNV-1a via the Hasher.
+    fn hash_key(ref self, key: ref K) -> USize {
+        var h = Hasher.new();
+        h.write_u64(key);
+        return h.finish();
+    }
+
+    /// Grow the backing storage (double capacity, rehash all entries).
+    fn grow(mutref self) {
+        let old_keys = self.keys;
+        let old_vals = self.vals;
+        let old_used = self.used;
+        let old_cap = self.cap;
+
+        var new_cap = old_cap * 2usize;
+        if new_cap == 0usize {
+            new_cap = 16usize;
+        }
+
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            extern fn fuse_rt_mem_alloc_zeroed(count: USize, size: USize) -> Ptr[U8];
+            self.keys = fuse_rt_mem_alloc(new_cap);
+            self.vals = fuse_rt_mem_alloc(new_cap);
+            self.used = fuse_rt_mem_alloc_zeroed(new_cap, 1usize);
+        }
+        self.cap = new_cap;
+        self.len = 0usize;
+
+        /// Reinsert all existing entries.
+        var i = 0usize;
+        while i < old_cap {
+            if old_used[i] == 1u8 {
+                let k = old_keys[i];
+                let v = old_vals[i];
+                self.insert(k, v);
+            }
+            i = i + 1usize;
+        }
+    }
+
+    /// After removing at idx, rehash subsequent entries that may have
+    /// been displaced by linear probing.
+    fn rehash_after_remove(mutref self, removed_idx: USize) {
+        var idx = (removed_idx + 1usize) % self.cap;
+        while self.used[idx] == 1u8 {
+            let k = self.keys[idx];
+            let v = self.vals[idx];
+            self.used[idx] = 0u8;
+            self.len = self.len - 1usize;
+            self.insert(k, v);
+            idx = (idx + 1usize) % self.cap;
+        }
     }
 }

@@ -1,42 +1,50 @@
 /// Set is a hash set of unique values.
-/// Bootstrap limitation: same as Map — cannot store entries.
+/// Implemented as a thin wrapper around Map[T, Bool].
 
 pub struct Set[T] {
-    len: USize,
+    inner: Map[T, Bool],
 }
 
 impl[T] Set[T] {
     /// Create an empty set.
     pub fn new() -> Set[T] {
-        return Set { len: 0usize };
+        return Set { inner: Map.new() };
     }
 
     /// Return the number of elements.
     pub fn len(ref self) -> USize {
-        return self.len;
+        return self.inner.len();
     }
 
     /// Return true if the set is empty.
     pub fn is_empty(ref self) -> Bool {
-        return self.len == 0usize;
+        return self.inner.is_empty();
     }
 
-    /// Insert a value. Returns true if it was new.
-    /// Bootstrap: increments len, always returns true.
+    /// Insert a value. Returns true if it was new (not already present).
     pub fn insert(mutref self, value: T) -> Bool {
-        self.len = self.len + 1usize;
-        return true;
+        let prev = self.inner.insert(value, true);
+        match prev {
+            Some(v) => return false,
+            None => return true,
+        }
     }
 
     /// Check if a value is in the set.
-    /// Bootstrap: always returns false.
     pub fn contains(ref self, value: ref T) -> Bool {
-        return false;
+        let result = self.inner.get(value);
+        match result {
+            Some(v) => return true,
+            None => return false,
+        }
     }
 
     /// Remove a value. Returns true if it was present.
-    /// Bootstrap: always returns false.
     pub fn remove(mutref self, value: ref T) -> Bool {
-        return false;
+        let result = self.inner.remove(value);
+        match result {
+            Some(v) => return true,
+            None => return false,
+        }
     }
 }

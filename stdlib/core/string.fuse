@@ -28,40 +28,179 @@ impl String {
         return self.data;
     }
 
+    /// Return the byte at the given index, or 0 if out of bounds.
+    pub fn byte_at(ref self, index: USize) -> U8 {
+        if index >= self.len {
+            return 0u8;
+        }
+        return self.data[index];
+    }
+
     /// Convert to uppercase (ASCII only).
-    /// Bootstrap: returns copy (byte-level mutation requires pointer write loop).
+    /// Allocates a new string with bytes in [97, 122] mapped to [65, 90].
     pub fn toUpper(ref self) -> String {
-        return String { data: self.data, len: self.len, cap: self.cap };
+        if self.len == 0usize {
+            return String.new();
+        }
+        var buf: Ptr[U8] = Ptr.null();
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            buf = fuse_rt_mem_alloc(self.len);
+        }
+        var i = 0usize;
+        while i < self.len {
+            let b = self.data[i];
+            if b >= 97u8 {
+                if b <= 122u8 {
+                    buf[i] = b - 32u8;
+                } else {
+                    buf[i] = b;
+                }
+            } else {
+                buf[i] = b;
+            }
+            i = i + 1usize;
+        }
+        return String { data: buf, len: self.len, cap: self.len };
     }
 
     /// Convert to lowercase (ASCII only).
-    /// Bootstrap: returns copy.
+    /// Allocates a new string with bytes in [65, 90] mapped to [97, 122].
     pub fn toLower(ref self) -> String {
-        return String { data: self.data, len: self.len, cap: self.cap };
+        if self.len == 0usize {
+            return String.new();
+        }
+        var buf: Ptr[U8] = Ptr.null();
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            buf = fuse_rt_mem_alloc(self.len);
+        }
+        var i = 0usize;
+        while i < self.len {
+            let b = self.data[i];
+            if b >= 65u8 {
+                if b <= 90u8 {
+                    buf[i] = b + 32u8;
+                } else {
+                    buf[i] = b;
+                }
+            } else {
+                buf[i] = b;
+            }
+            i = i + 1usize;
+        }
+        return String { data: buf, len: self.len, cap: self.len };
+    }
+
+    /// Check if this string contains the given substring.
+    pub fn contains(ref self, needle: ref String) -> Bool {
+        if needle.len == 0usize {
+            return true;
+        }
+        if needle.len > self.len {
+            return false;
+        }
+        let end = self.len - needle.len + 1usize;
+        var i = 0usize;
+        while i < end {
+            var matched = true;
+            var j = 0usize;
+            while j < needle.len {
+                if self.data[i + j] != needle.data[j] {
+                    matched = false;
+                    j = needle.len;
+                } else {
+                    j = j + 1usize;
+                }
+            }
+            if matched {
+                return true;
+            }
+            i = i + 1usize;
+        }
+        return false;
+    }
+
+    /// Check if this string starts with the given prefix.
+    pub fn starts_with(ref self, prefix: ref String) -> Bool {
+        if prefix.len > self.len {
+            return false;
+        }
+        var i = 0usize;
+        while i < prefix.len {
+            if self.data[i] != prefix.data[i] {
+                return false;
+            }
+            i = i + 1usize;
+        }
+        return true;
+    }
+
+    /// Check if this string ends with the given suffix.
+    pub fn ends_with(ref self, suffix: ref String) -> Bool {
+        if suffix.len > self.len {
+            return false;
+        }
+        let offset = self.len - suffix.len;
+        var i = 0usize;
+        while i < suffix.len {
+            if self.data[offset + i] != suffix.data[i] {
+                return false;
+            }
+            i = i + 1usize;
+        }
+        return true;
     }
 }
 
 impl Equatable : String {
     fn eq(ref self, other: ref String) -> Bool {
         if self.len != other.len { return false; }
-        /// Bootstrap: length-only comparison. Byte comparison requires
-        /// pointer iteration loop.
+        var i = 0usize;
+        while i < self.len {
+            if self.data[i] != other.data[i] {
+                return false;
+            }
+            i = i + 1usize;
+        }
         return true;
     }
 
     fn ne(ref self, other: ref String) -> Bool {
-        return self.len != other.len;
+        if self.len != other.len { return true; }
+        var i = 0usize;
+        while i < self.len {
+            if self.data[i] != other.data[i] {
+                return true;
+            }
+            i = i + 1usize;
+        }
+        return false;
     }
 }
 
 impl Clone : String {
     fn clone(ref self) -> String {
-        return String { data: self.data, len: self.len, cap: self.cap };
+        if self.len == 0usize {
+            return String.new();
+        }
+        var buf: Ptr[U8] = Ptr.null();
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            buf = fuse_rt_mem_alloc(self.len);
+        }
+        var i = 0usize;
+        while i < self.len {
+            buf[i] = self.data[i];
+            i = i + 1usize;
+        }
+        return String { data: buf, len: self.len, cap: self.len };
     }
 }
 
 impl Printable : String {
     fn fmt(ref self, f: mutref Formatter) -> Result {
+        f.write_str(ref self);
         return Ok(());
     }
 }

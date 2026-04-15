@@ -1,12 +1,19 @@
 /// Runtime bridge: compiler intrinsics.
 /// This file contains unsafe primitives used by the compiler.
+///
+/// Bootstrap limitation: size_of and align_of return 8 (pointer-sized)
+/// for all types. Correct per-type sizes require compiler support to
+/// lower these calls into sizeof() in the generated C. This is tracked
+/// as a Wave 19 compiler feature.
 
 /// Return the size of a type in bytes.
+/// Bootstrap: returns 8 (pointer-sized default for 64-bit targets).
 pub fn size_of[T]() -> USize {
-    0usize
+    return 8usize;
 }
 
 /// Return the alignment of a type in bytes.
+/// Bootstrap: returns 8 (pointer-aligned default for 64-bit targets).
 pub fn align_of[T]() -> USize {
-    0usize
+    return 8usize;
 }

@@ -1,6 +1,4 @@
 /// Formatting module: Formatter for building formatted output.
-/// Bootstrap limitation: write operations are no-ops until pointer
-/// write and memory allocation support is added to codegen.
 
 /// Formatter is a buffer for building formatted output.
 pub struct Formatter {
@@ -13,16 +11,45 @@ impl Formatter {
         return Formatter { buf: String.new() };
     }
 
-    /// Write a string to the formatter.
-    /// Bootstrap: no-op (requires string concat via pointer write).
+    /// Write a string to the formatter buffer.
     pub fn write_str(mutref self, s: ref String) -> Result {
+        if s.len() == 0usize {
+            return Ok(());
+        }
+        /// Concat self.buf + s via the runtime.
+        let old_data = self.buf.as_bytes();
+        let old_len = self.buf.len();
+        let add_data = s.as_bytes();
+        let add_len = s.len();
+        var new_data: Ptr[U8] = Ptr.null();
+        var new_len: USize = 0usize;
+        unsafe {
+            extern fn fuse_rt_string_concat(
+                a: Ptr[U8], a_len: USize,
+                b: Ptr[U8], b_len: USize,
+                out_data: mutref Ptr[U8], out_len: mutref USize
+            );
+            fuse_rt_string_concat(
+                old_data, old_len,
+                add_data, add_len,
+                mutref new_data, mutref new_len
+            );
+        }
+        self.buf = String { data: new_data, len: new_len, cap: new_len };
         return Ok(());
     }
 
-    /// Write a single character.
-    /// Bootstrap: no-op (requires buffer append via pointer write).
-    pub fn write_char(mutref self, c: Char) -> Result {
-        return Ok(());
+    /// Write a single byte as a character to the formatter buffer.
+    pub fn write_char(mutref self, c: U8) -> Result {
+        /// Allocate a single-byte string and concat.
+        var byte_buf: Ptr[U8] = Ptr.null();
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            byte_buf = fuse_rt_mem_alloc(1usize);
+        }
+        byte_buf[0usize] = c;
+        let one = String { data: byte_buf, len: 1usize, cap: 1usize };
+        return self.write_str(ref one);
     }
 
     /// Return the accumulated string.

@@ -82,8 +82,9 @@ In this document, task bullets use the compact form:
 | 15 | Self-hosting gate | Wave 14 done | stage2 compiles itself reproducibly |
 | 16 | Native backend transition | Wave 15 done | bootstrap C11 dependency is removed |
 | 17 | Generics end-to-end | Wave 16 done | generic functions and types compile, run, and produce correct output |
-| 18 | Retirement of Go and C | Wave 17 done | Fuse owns the compiler implementation path |
-| 19 | Targets and ecosystem | Wave 18 done | cross-target and library growth resume on native base |
+| 18 | Language completeness | Wave 17 done | every language-guide feature has an e2e proof program; stdlib compiles and runs |
+| 19 | Retirement of Go and C | Wave 18 done | Fuse owns the compiler implementation path |
+| 20 | Targets and ecosystem | Wave 19 done | cross-target and library growth resume on native base |
 
 ## Wave 00: Project Foundations
 
@@ -1060,12 +1061,461 @@ specialized `Result[T, E]` type to work end-to-end.
   DoD: the e2e test suite including all generic proof programs passes in the
   CI matrix (Linux, macOS, Windows).
 
-## Wave 18: Retirement of Go and C from the Compiler Path
+## Wave 18: Language Completeness
+
+Goal: close every feature gap between the language guide and the compiler so
+that the full standard library compiles, every documented feature has an e2e
+proof program, and a user can write non-trivial Fuse programs that use
+closures, I/O, iteration, traits, and concurrency.
+
+This wave was added after learning-log entry L016 identified 40 feature gaps
+across 4 categories: implemented-but-unproven, partially implemented,
+specified-but-not-implemented, and stdlib gaps. Every item in L016 must be
+resolved before Wave 19 (Retirement of Go and C) can begin.
+
+Entry criterion: Wave 17 done.
+
+Exit criteria:
+
+- every feature in the language guide (sections 1–17) has at least one e2e
+  proof program that compiles, links, runs, and produces verified output
+- `stdlib/core/` compiles through the pipeline with no type errors
+- `stdlib/full/` compiles through the pipeline with no type errors
+- `print("hello")` and `println("world")` produce correct stdout output
+- `for x in iter { ... }` works with the Iterator trait
+- closures capture outer variables and execute correctly
+- trait method dispatch on concrete types works end-to-end
+- Drop destructors run at scope exit for types with Drop implementations
+- channels and spawn produce concurrent behavior
+- all proof programs pass in the CI matrix
+
+Proof programs (each must pass as an e2e test):
+
+```fuse
+// P1: closures
+fn apply(f: Fn(I32) -> I32, x: I32) -> I32 { return f(x); }
+fn main() -> I32 {
+    let offset = 10;
+    let f = |x| { x + offset };
+    return apply(f, 32);
+}
+// expected: exit code 42
+
+// P2: trait dispatch
+trait Doubler { fn double(ref self) -> I32; }
+impl Doubler for I32 { fn double(ref self) -> I32 { return self * 2; } }
+fn do_double(x: ref Doubler) -> I32 { return x.double(); }
+fn main() -> I32 { let v: I32 = 21; return do_double(ref v); }
+// expected: exit code 42
+
+// P3: for..in iteration
+fn main() -> I32 {
+    var sum = 0;
+    for x in [1, 2, 3, 4] { sum = sum + x; }
+    return sum;
+}
+// expected: exit code 10
+
+// P4: Drop destructor
+// (verify destructor runs by setting a global flag or exit code)
+
+// P5: print/println to stdout
+fn main() -> I32 { println("hello"); return 0; }
+// expected: stdout contains "hello", exit code 0
+
+// P6: channels and spawn
+fn main() -> I32 {
+    let ch = Chan[I32].new();
+    spawn fn() { ch.send(42); };
+    match ch.recv() { Ok(v) => return v, Err(_) => return 1 }
+}
+// expected: exit code 42
+```
+
+### Phase 01: Core Expression Completeness [W18-P01-CORE-EXPR-COMPLETENESS]
+
+Features that are implemented in the pipeline but lack e2e proof programs.
+Each task produces a proof program that fails if the feature is reverted.
+
+- Task 01: Tuple construction and field access
+  [W18-P01-T01-TUPLE-E2E]
+  Currently: lowered to InstrTuple, emitted as anonymous struct. No e2e test.
+  DoD: `let p = (10, 32); return p.0 + p.1;` compiles, runs, exits 42.
+
+- Task 02: Struct initialization and field access
+  [W18-P01-T02-STRUCT-E2E]
+  Currently: lowered to InstrStructInit. No e2e test.
+  DoD: `struct P { x: I32, y: I32 } ... return p.x + p.y;` exits 42.
+
+- Task 03: Ownership forms — ref, mutref, owned, move
+  [W18-P01-T03-OWNERSHIP-E2E]
+  Currently: borrow lowering to InstrBorrow with BorrowShared/BorrowMutable
+  exists. No e2e test verifies C pointer semantics.
+  DoD: program passing `ref` and `mutref` to functions compiles and runs.
+  Mutref mutation is visible to the caller.
+
+- Task 04: Loop with break value
+  [W18-P01-T04-LOOP-BREAK-VALUE-E2E]
+  Currently: lowerer captures break values via BreakLocal. No e2e test.
+  DoD: `let x = loop { break 42; }; return x;` exits 42.
+
+- Task 05: Const declarations
+  [W18-P01-T05-CONST-DECL]
+  Currently: parsed but no const evaluation. Using a const produces Unknown.
+  DoD: `const N: I32 = 42; fn main() -> I32 { return N; }` exits 42.
+
+- Task 06: Type aliases
+  [W18-P01-T06-TYPE-ALIAS]
+  Currently: parsed (`TypeAliasDecl`) but checker never resolves alias to
+  underlying type.
+  DoD: `type Score = I32; fn main() -> Score { return 42; }` exits 42.
+
+### Phase 02: Closures End-to-End [W18-P02-CLOSURES]
+
+Closures are specified in the language guide (section 5.1) and partially
+implemented (capture analysis + function lifting in `compiler/lower/lower.go:
+572-648`) but the closure is returned as an environment struct only, not
+paired with a function pointer.
+
+- Task 01: Complete closure representation — pair environment with function
+  pointer [W18-P02-T01-CLOSURE-REPR]
+  Currently: `lowerClosure` returns `envDest` (environment struct) without
+  the lifted function pointer (`lower.go:647`).
+  DoD: closure values carry both the environment and the function pointer.
+  Generated C emits a struct with `{ void* fn; void* env; }` or equivalent.
+
+- Task 02: Implement closure call — invoke lifted function with environment
+  [W18-P02-T02-CLOSURE-CALL]
+  Currently: calling a closure value would attempt a direct call on the
+  environment struct, which is invalid C.
+  DoD: `let f = |x| { x + 1 }; return f(41);` compiles and exits 42.
+
+- Task 03: Implement closure capture of outer variables
+  [W18-P02-T03-CLOSURE-CAPTURE]
+  Currently: capture analysis scans limited expression types.
+  DoD: `let offset = 10; let f = |x| { x + offset }; return f(32);`
+  exits 42. The closure reads `offset` from its captured environment.
+
+- Task 04: Add e2e proof program for closures passed as function arguments
+  [W18-P02-T04-CLOSURE-AS-ARG-E2E]
+  DoD: proof program P1 (closures) from the wave exit criteria passes.
+
+### Phase 03: Trait System Completion [W18-P03-TRAIT-SYSTEM]
+
+The checker resolves trait methods including supertraits, but no e2e test
+verifies trait dispatch on concrete types. Several trait features are parsed
+but not enforced.
+
+- Task 01: Trait method dispatch on concrete types
+  [W18-P03-T01-TRAIT-DISPATCH-E2E]
+  Currently: `lookupMethod` in `compiler/check/methods.go:57-104` resolves
+  through trait impls. Never tested end-to-end.
+  DoD: proof program P2 (trait dispatch) from the wave exit criteria passes.
+
+- Task 02: Enforce trait bounds on generic type parameters
+  [W18-P03-T02-TRAIT-BOUNDS]
+  Currently: `[T: Display]` is parsed but the bound is ignored during
+  checking. Any type can be passed.
+  DoD: `fn show[T: Display](x: T)` rejects types without Display impl.
+
+- Task 03: Where clause enforcement
+  [W18-P03-T03-WHERE-CLAUSES]
+  Currently: `where T: Display` is parsed but never checked.
+  DoD: where constraints are validated during type checking. Violations
+  produce diagnostics.
+
+- Task 04: Generic impl blocks
+  [W18-P03-T04-GENERIC-IMPLS]
+  Currently: only concrete impls work. `impl[T] Trait for Container[T]`
+  is not handled.
+  DoD: a generic impl block is specialized per instantiation. Methods
+  on `List[I32]` resolve through `impl[T] List[T]`.
+
+- Task 05: Trait default method implementations
+  [W18-P03-T05-DEFAULT-METHODS]
+  Currently: traits can declare method signatures but cannot provide
+  default bodies.
+  DoD: a trait method with a default body is inherited by impls that do
+  not override it.
+
+- Task 06: Associated types in traits
+  [W18-P03-T06-ASSOCIATED-TYPES]
+  Currently: not implemented.
+  DoD: `trait Iterator { type Item; fn next(mutref self) -> Option[Self.Item]; }`
+  works and the associated type resolves during checking.
+
+- Task 07: Implicit mutref on method receivers
+  [W18-P03-T07-IMPLICIT-MUTREF-E2E]
+  Currently: language guide contract says `items.push(1)` should work
+  without `mutref items`. Not tested.
+  DoD: `var v = Vec.new(); v.push(1);` compiles without explicit `mutref`.
+
+### Phase 04: Control Flow Completions [W18-P04-CONTROL-FLOW]
+
+- Task 01: for..in with Iterator protocol
+  [W18-P04-T01-FOR-IN-ITERATOR]
+  Currently: `for x in coll` is lowered but the binding type is Unknown
+  (`lower.go:440`) and the lowerer branches on the iterable directly
+  instead of calling `next()` (`lower.go:451`).
+  DoD: `for..in` calls `into_iter()` on the collection, then calls
+  `next()` in a loop, matching `Some(v)` to continue and `None` to break.
+  Proof program P3 passes.
+
+- Task 02: Optional chaining (?.) — full implementation
+  [W18-P04-T02-OPTIONAL-CHAINING]
+  Currently: parsed and type-checked but returns Unknown type
+  (`compiler/check/expr.go:312-316`). Lowering not implemented.
+  DoD: `expr?.field` evaluates `expr`, returns None/Err if absent, or
+  accesses `field` if present. E2e proof program passes.
+
+- Task 03: Struct and tuple patterns in match
+  [W18-P04-T03-STRUCT-TUPLE-PATTERNS]
+  Currently: `StructPat` and `TuplePat` are parsed by the parser but have
+  no lowering code in the lowerer.
+  DoD: `match p { Point { x, y } => x + y }` and
+  `match t { (a, b) => a + b }` compile and produce correct results.
+
+### Phase 05: Safety and Destruction [W18-P05-SAFETY-DESTRUCTION]
+
+- Task 01: Drop destructors run at scope exit
+  [W18-P05-T01-DROP-E2E]
+  Currently: `InstrDrop` emission exists (`codegen/emit.go:252-258`) and
+  calls `TypeName_drop(&_lN)` for types with Drop impls. Never tested.
+  DoD: e2e proof program P4 verifies a destructor runs. A type with a
+  Drop impl sets a flag or modifies observable state that the test checks.
+
+- Task 02: Recursive Drop on compound types
+  [W18-P05-T02-RECURSIVE-DROP]
+  Currently: only top-level locals get Drop calls. Struct fields with Drop
+  implementations are not recursively destroyed.
+  DoD: a struct containing a field with Drop has both destructors called
+  in the correct order (inner before outer).
+
+- Task 03: Unsafe block enforcement
+  [W18-P05-T03-UNSAFE-ENFORCEMENT]
+  Currently: `unsafe { }` is parsed as a regular block. No compile error
+  when calling extern FFI functions outside unsafe blocks.
+  DoD: calling an extern function outside `unsafe { }` produces a
+  diagnostic. Calling inside `unsafe { }` compiles successfully.
+
+- Task 04: Recursive type detection
+  [W18-P05-T04-RECURSIVE-TYPE-DETECTION]
+  Currently: `struct Node { next: Node }` causes infinite-size types.
+  No diagnostic.
+  DoD: the checker detects directly recursive type definitions and emits
+  a diagnostic.
+
+- Task 05: Module visibility enforcement (pub)
+  [W18-P05-T05-PUB-VISIBILITY]
+  Currently: `pub` is parsed but all symbols are accessible across modules.
+  DoD: non-pub items in module A are not accessible from module B.
+  Attempting access produces a diagnostic.
+
+### Phase 06: Strings and I/O [W18-P06-STRINGS-AND-IO]
+
+I/O depends on: String, slices, unsafe blocks, and extern FFI. This phase
+ensures the full chain works.
+
+- Task 01: String literal to C string emission
+  [W18-P06-T01-STRING-LITERALS]
+  Currently: string literals are checked as `InternStruct("core", "String")`
+  but no C representation exists for string values.
+  DoD: `let s = "hello";` produces a C string constant or struct with data
+  pointer and length.
+
+- Task 02: String escape sequences
+  [W18-P06-T02-STRING-ESCAPES]
+  Currently: language guide specifies `\n`, `\r`, `\t`, `\\`, `\"` and
+  Unicode escapes. The lexer may not implement the full suite.
+  DoD: `"hello\nworld"` produces a string with an embedded newline in
+  generated C.
+
+- Task 03: String.len() and String.as_bytes()
+  [W18-P06-T03-STRING-METHODS]
+  Currently: `stdlib/core/string.fuse` declares these methods but bodies
+  are stubs.
+  DoD: `"hello".len()` returns 5. `as_bytes()` returns a valid slice.
+
+- Task 04: print() and println() to stdout
+  [W18-P06-T04-PRINT-PRINTLN]
+  Currently: `stdlib/full/io.fuse` calls `fuse_rt_io_write_stdout` via
+  extern FFI. Depends on String.as_bytes() and unsafe blocks.
+  DoD: proof program P5 passes — `println("hello")` writes "hello\n" to
+  stdout.
+
+- Task 05: File I/O — open, read, write, close
+  [W18-P06-T05-FILE-IO]
+  Currently: `File` struct in `stdlib/full/io.fuse` with extern FFI.
+  DoD: a program opens a temp file, writes data, reads it back, and
+  verifies contents match.
+
+### Phase 07: Stdlib Core Tier [W18-P07-STDLIB-CORE]
+
+Every module in `stdlib/core/` must compile through the pipeline and have
+its public API exercised by proof programs.
+
+- Task 01: Fix Option[T] impl block to be generic
+  [W18-P07-T01-OPTION-IMPL]
+  Currently: `impl Option` (not `impl[T] Option[T]`). Methods use `T`
+  without it being in scope. `map()` takes `f: Fn` (unparameterized).
+  DoD: `Option[I32].unwrap_or(default)` compiles and runs. The impl block
+  is `impl[T] Option[T]`.
+
+- Task 02: Fix Result[T, E] impl block to be generic
+  [W18-P07-T02-RESULT-IMPL]
+  Currently: same problem as Option. `impl Result` is not generic.
+  DoD: `Result[I32, Bool].unwrap_or(0)` compiles and runs.
+
+- Task 03: Core traits — implement Equatable and Comparable for primitives
+  [W18-P07-T03-CORE-TRAITS-PRIMITIVES]
+  Currently: traits declared in `stdlib/core/traits.fuse` but no concrete
+  type implements them.
+  DoD: `I32` implements `Equatable`. `==` on user types dispatches through
+  the trait.
+
+- Task 04: Iterator and IntoIterator traits
+  [W18-P07-T04-ITERATOR-TRAITS]
+  Currently: `Iterator.next()` returns `Option` (no type parameter).
+  `IntoIterator.into_iter()` returns `Self`.
+  DoD: `Iterator` has `type Item` associated type. `next()` returns
+  `Option[Self.Item]`. Arrays/slices implement `IntoIterator`.
+
+- Task 05: Primitives module — type aliases and primitive methods
+  [W18-P07-T05-PRIMITIVES]
+  Currently: `stdlib/core/primitives.fuse` declares `type Int = ISize`,
+  `type Float = F64` and primitive method stubs. Type aliases are not
+  implemented.
+  DoD: `Int` resolves to `ISize`. Primitive methods (`abs()`, `min()`,
+  `max()`) produce correct results in e2e tests.
+
+- Task 06: Collections — List[T] with push, pop, get
+  [W18-P07-T06-COLLECTIONS-LIST]
+  Currently: `List[T]` declared with empty method bodies in
+  `stdlib/core/collections.fuse`.
+  DoD: `List[I32].new()`, `push(42)`, `get(0)` compiles and returns 42.
+  Requires: generics, generic impls, runtime memory allocation.
+
+- Task 07: Collections — Map[K, V] and Set[T]
+  [W18-P07-T07-COLLECTIONS-MAP-SET]
+  Currently: stubs in `stdlib/core/collections.fuse`.
+  DoD: `Map[String, I32].insert("key", 42)` and `get("key")` works.
+  Requires: Hashable trait, String hashing, generics.
+
+- Task 08: Hash module
+  [W18-P07-T08-HASH]
+  Currently: `stdlib/core/hash.fuse` exists but not compiled.
+  DoD: hash module compiles. Hasher struct produces deterministic hashes.
+
+- Task 09: Clone trait — implement for primitives and common types
+  [W18-P07-T09-CLONE]
+  Currently: `Clone` trait declared. No implementations.
+  DoD: `I32.clone()` works. String.clone() produces a copy.
+
+- Task 10: Display and Debug formatting
+  [W18-P07-T10-DISPLAY-DEBUG]
+  Currently: traits declared with `Formatter` parameter. No formatting
+  infrastructure.
+  DoD: `Display` for `I32` produces "42". Basic Formatter exists.
+
+### Phase 08: Stdlib Hosted Tier [W18-P08-STDLIB-HOSTED]
+
+Every module in `stdlib/full/` must compile and have its public API tested.
+
+- Task 01: OS module — argc, argv, env_get, exit
+  [W18-P08-T01-OS-MODULE]
+  Currently: `stdlib/full/os.fuse` declares FFI wrappers. Not compiled.
+  DoD: a program reads argc/argv from the runtime and exits with a code
+  derived from the argument count.
+
+- Task 02: Sync module — Mutex, Cond
+  [W18-P08-T02-SYNC-MODULE]
+  Currently: extern declarations for runtime sync primitives. Not compiled.
+  DoD: Mutex lock/unlock compiles and runs. Cond wait/signal compiles.
+
+- Task 03: Thread module — spawn with closures
+  [W18-P08-T03-THREAD-MODULE]
+  Currently: `thread_spawn()` calls `fuse_rt_thread_spawn`. Depends on
+  closure-to-function-pointer conversion.
+  DoD: `spawn fn() { ... }` creates a real thread. E2e test verifies
+  concurrent execution.
+
+- Task 04: Channel module — send, recv, close with runtime integration
+  [W18-P08-T04-CHANNEL-MODULE]
+  Currently: `Chan[T]` with stub method bodies. `send()` returns `Ok(())`,
+  `recv()` returns `Err("channel empty")`. No runtime queue.
+  DoD: proof program P6 (channels) passes. `Chan[I32].send(42)` and
+  `recv()` exchange values between threads.
+
+- Task 05: @value struct decorator — auto-derive core traits
+  [W18-P08-T05-VALUE-STRUCT]
+  Currently: `@value` parsed but no auto-derivation.
+  DoD: `@value struct Point { x: I32, y: I32 }` auto-derives Equatable,
+  Clone, and Debug.
+
+- Task 06: @rank(N) lock ordering enforcement
+  [W18-P08-T06-RANK-ENFORCEMENT]
+  Currently: parsed but not enforced.
+  DoD: acquiring locks out of rank order produces a compile-time diagnostic.
+
+### Phase 09: Generic Type Inference Improvements [W18-P09-GENERIC-INFERENCE]
+
+- Task 01: Infer full type args from usage context
+  [W18-P09-T01-CONTEXTUAL-INFERENCE]
+  Currently: `let r = Ok(42)` produces `Result[I32, Unknown]` instead of
+  `Result[I32, Bool]` when used as `try_get[I32, Bool](r)`.
+  DoD: the checker propagates expected types from call-site parameter types
+  back to variable definitions. `let r = Ok(42); f[I32, Bool](r)` types
+  `r` as `Result[I32, Bool]`.
+
+- Task 02: Infer generic args from return type context
+  [W18-P09-T02-RETURN-TYPE-INFERENCE]
+  Currently: explicit type args required on calls like `identity[I32](42)`.
+  DoD: `fn main() -> I32 { return identity(42); }` infers T=I32 from
+  the return position without explicit `[I32]`.
+
+- Task 03: Zero-argument generic calls with explicit type args
+  [W18-P09-T03-ZERO-ARG-GENERICS]
+  Currently: `sizeOf[I32]()` pattern not tested.
+  DoD: generic functions with no value arguments specialize correctly
+  when explicit type args are provided.
+
+### Phase 10: Regression Closure and Proof Program Audit [W18-P10-REGRESSION-CLOSURE]
+
+- Task 01: Verify every L016 item (1–40) has a proof program or is descoped
+  [W18-P10-T01-L016-AUDIT]
+  DoD: every item in learning-log L016 is either covered by an e2e test
+  or explicitly removed from the language guide with a rationale.
+
+- Task 02: Compile stdlib/core/ through the full pipeline
+  [W18-P10-T02-STDLIB-CORE-COMPILES]
+  DoD: `fuse check stdlib/core/` succeeds with no type errors. Every
+  public method body is checked.
+
+- Task 03: Compile stdlib/full/ through the full pipeline
+  [W18-P10-T03-STDLIB-FULL-COMPILES]
+  DoD: `fuse check stdlib/full/` succeeds with no type errors.
+
+- Task 04: Stage 2 re-verification with full feature set
+  [W18-P10-T04-STAGE2-REVERIFY]
+  DoD: stage1 compiles stage2, stage2 compiles itself, reproducibility
+  check passes. The bootstrap gate holds with the expanded feature set.
+
+- Task 05: Update learning log with any new lessons
+  [W18-P10-T05-UPDATE-LEARNING-LOG]
+  DoD: learning-log entries exist for any design gaps or architectural
+  lessons discovered during this wave.
+
+- Task 06: Verify all proof programs pass in CI
+  [W18-P10-T06-CI-PROOF-PROGRAMS]
+  DoD: the e2e test suite including all proof programs from Waves 17 and
+  18 passes in the CI matrix (Linux, macOS, Windows).
+
+## Wave 19: Retirement of Go and C from the Compiler Path
 
 Goal: complete the transition from bootstrap implementation languages to a Fuse
 compiler implemented and built by Fuse.
 
-Entry criterion: Wave 17 done.
+Entry criterion: Wave 18 done.
 
 Exit criteria:
 
@@ -1074,46 +1524,46 @@ Exit criteria:
 - C is no longer required as a backend or runtime implementation dependency in
   the compiler path
 
-### Phase 01: Retire Go [W18-P01-RETIRE-GO]
+### Phase 01: Retire Go [W19-P01-RETIRE-GO]
 
-- Task 01: Freeze Stage 1 as archival bootstrap tool [W18-P01-T01-FREEZE-STAGE1]
+- Task 01: Freeze Stage 1 as archival bootstrap tool [W19-P01-T01-FREEZE-STAGE1]
   DoD: Stage 1 is no longer required for ordinary compiler development.
 - Task 02: Remove Go from active compiler build workflow
-  [W18-P01-T02-REMOVE-GO-FROM-WORKFLOW]
+  [W19-P01-T02-REMOVE-GO-FROM-WORKFLOW]
   DoD: supported build path no longer invokes Go.
 
-### Phase 02: Retire C [W18-P02-RETIRE-C]
+### Phase 02: Retire C [W19-P02-RETIRE-C]
 
 - Task 01: Replace C runtime dependencies as required
-  [W18-P02-T01-REPLACE-C-RUNTIME]
+  [W19-P02-T01-REPLACE-C-RUNTIME]
   DoD: compiler implementation path no longer requires C runtime code.
 - Task 02: Remove C from compiler bootstrap assumptions
-  [W18-P02-T02-REMOVE-C-FROM-BOOTSTRAP-ASSUMPTIONS]
+  [W19-P02-T02-REMOVE-C-FROM-BOOTSTRAP-ASSUMPTIONS]
   DoD: compiler implementation is Fuse-only.
 
-## Wave 19: Targets and Ecosystem Growth
+## Wave 20: Targets and Ecosystem Growth
 
 Goal: resume broader target and library work on top of the self-hosted native
 compiler.
 
-Entry criterion: Wave 18 done.
+Entry criterion: Wave 19 done.
 
 Exit criteria:
 
 - target expansion and library growth occur without reintroducing bootstrap debt
 
-### Phase 01: Additional Targets [W19-P01-ADDITIONAL-TARGETS]
+### Phase 01: Additional Targets [W20-P01-ADDITIONAL-TARGETS]
 
-- Task 01: Add target descriptions [W19-P01-T01-TARGET-DESCRIPTIONS]
+- Task 01: Add target descriptions [W20-P01-T01-TARGET-DESCRIPTIONS]
   DoD: each supported target has a documented ABI and validation path.
-- Task 02: Add target CI [W19-P01-T02-TARGET-CI]
+- Task 02: Add target CI [W20-P01-T02-TARGET-CI]
   DoD: target regressions are visible immediately.
 
-### Phase 02: Extended Libraries [W19-P02-EXTENDED-LIBRARIES]
+### Phase 02: Extended Libraries [W20-P02-EXTENDED-LIBRARIES]
 
-- Task 01: Implement ext stdlib modules [W19-P02-T01-EXT-STDLIB]
+- Task 01: Implement ext stdlib modules [W20-P02-T01-EXT-STDLIB]
   DoD: optional libraries build on the stable core and hosted tiers.
-- Task 02: Publish ecosystem guidance [W19-P02-T02-ECOSYSTEM-GUIDANCE]
+- Task 02: Publish ecosystem guidance [W20-P02-T02-ECOSYSTEM-GUIDANCE]
   DoD: package authors have clear compatibility and safety rules.
 
 ## Cross-cutting constraints

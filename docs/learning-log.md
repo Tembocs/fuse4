@@ -903,3 +903,252 @@ the wave must match the granularity of the integration risk.
 This entry is verified when Wave 17 Phase 05 Task 01 passes: the proof program
 `fn identity[T](x: T) -> T { return x; } fn main() -> I32 { return identity[I32](42); }`
 compiles, runs, and exits with code 42.
+
+### L016 — Pre-Wave-18 completeness audit: language features not yet proven
+
+Date: 2026-04-15
+Discovered during: Post-Wave-17 audit, before Wave 18 (Retirement of Go and C)
+
+**Reproducer**:
+Wave 17 (Generics End-to-End) is complete with 6 e2e proof programs. But a
+self-hosted compiler that cannot compile programs using closures, threads,
+strings, I/O, or the standard library is not ready for Wave 18. This entry
+catalogs every feature gap that must be closed before Go and C can be retired.
+
+**What was tried first**:
+After completing Wave 17, an audit was performed against the language guide,
+stdlib source, and compiler pipeline. Features were classified as: proven
+(e2e test exists), implemented but unproven (code exists, no e2e test),
+partially implemented (incomplete or stub), or specified but not implemented.
+
+**Root cause**:
+The implementation plan treated Waves 00–16 as done, and Wave 17 added
+generics. But the L013 audit revealed 6 silently stubbed features. After
+fixing those and completing generics, the remaining features were never
+re-audited against the full language guide and stdlib. The compiler can compile
+programs that use arithmetic, control flow, functions, generics, enums, pattern
+matching, and error propagation. It cannot compile programs that use closures,
+strings, I/O, iteration, channels, trait-driven dispatch, or most stdlib APIs.
+
+**Spec gap**:
+The language guide specifies closures, concurrency, iterators, trait methods,
+string operations, and I/O as core features. None of these have e2e proof
+programs. The stdlib source files declare methods that would fail at type-check
+or codegen if actually compiled through the pipeline.
+
+**Plan gap**:
+The implementation plan does not have a wave between Wave 17 (Generics) and
+Wave 18 (Retirement) that closes the remaining feature gaps. Wave 18 assumes
+the language is complete; it is not.
+
+**Fix**:
+A new wave (or extension of existing waves) must close every gap below before
+Wave 18 begins. Each category lists features from most to least critical.
+
+## Category 1: Implemented but no e2e proof program
+
+These features have code in the parser, checker, lowerer, and codegen, but no
+program has ever been compiled through the full pipeline, linked, executed, and
+verified. Per Rule 6.8, they are not complete until proven.
+
+1. **Closures** — `|x| { x + 1 }`. Capture analysis and function lifting
+   exist (`compiler/lower/lower.go:572-648`), but the closure is returned as
+   an environment struct only, not paired with a function pointer. No program
+   using closures has ever produced a working binary.
+
+2. **Drop/destructors** — Types with `Drop` implementations should have
+   `TypeName_drop(&_lN)` emitted in generated C (`compiler/codegen/emit.go:
+   252-258`). The `InstrDrop` emission exists but no e2e test verifies that a
+   destructor actually runs at the right time.
+
+3. **Tuple construction and field access** — `let p = (1, 2); let x = p.0;`.
+   Lowered to `InstrTuple`, emitted as anonymous struct. No e2e test.
+
+4. **Struct initialization** — `Point { x: 1, y: 2 }`. Lowered to
+   `InstrStructInit`, emitted as typed aggregate. No e2e test.
+
+5. **Ownership: ref/mutref/owned/move** — Borrow lowering to `InstrBorrow`
+   exists with `BorrowShared` and `BorrowMutable` kinds. No e2e test verifies
+   that borrows produce correct C pointer semantics.
+
+6. **Trait method dispatch** — `lookupMethod` in
+   `compiler/check/methods.go:57-104` resolves methods through trait impls and
+   supertraits. No e2e test compiles a program with a trait impl and calls a
+   trait method on a concrete type.
+
+7. **Implicit mutref on method receivers** — The language guide contract says
+   `items.push(1)` should not require `mutref items` if `items` is a mutable
+   binding. No e2e test verifies this.
+
+8. **Loop with break value** — `let x = loop { break 42; };`. The lowerer
+   captures break values via `BreakLocal`. No e2e test.
+
+## Category 2: Partially implemented (code exists but incomplete)
+
+9. **for..in loops** — Parsed and lowered, but the binding variable type is
+   `Unknown` (`compiler/lower/lower.go:440`) and the iterator protocol is
+   stubbed: the lowerer branches on the iterable directly instead of calling
+   `next()` (`lower.go:451`). No program using `for x in collection` works.
+
+10. **Optional chaining (?.)** — Parsed and type-checked, but returns
+    `Unknown` type (`compiler/check/expr.go:312-316`). Lowering not
+    implemented. No e2e test.
+
+11. **Spawn/threads** — `spawn expr` lowered to `fuse_rt_thread_spawn` call
+    but with `Unknown` typed locals (`compiler/lower/lower.go:133-143`).
+    Runtime C function exists (`runtime/src/thread.c`). No e2e test.
+
+12. **Channels** — `Chan[T]` struct declared in `stdlib/full/chan.fuse` with
+    stub method bodies (`send` returns `Ok(())`, `recv` returns
+    `Err("channel empty")`). No runtime integration. No e2e test.
+
+13. **Pattern matching: struct and tuple patterns** — `StructPat` and
+    `TuplePat` are parsed but have no lowering code. Only `WildcardPattern`,
+    `BindPattern`, `LiteralPattern`, and `ConstructorPattern` are lowered.
+
+14. **Unsafe blocks** — Parsed as regular blocks with no semantic enforcement.
+    No compile error on unsafe FFI calls outside `unsafe { }`. No e2e test.
+
+15. **Drop on nested/compound types** — `InstrDrop` only calls destructors on
+    top-level locals. Struct fields with Drop implementations are not
+    recursively destroyed. Moved-from fields are not skipped.
+
+16. **Generic type inference from context** — `let r = Ok(42)` infers
+    `Result[I32, Unknown]` instead of `Result[I32, Bool]` when later used as
+    `try_get[I32, Bool](r)`. Only explicit type args on helper functions
+    work around this.
+
+## Category 3: Specified in language guide but not implemented
+
+17. **Const declarations** — `const N: I32 = 42;` is parsed
+    (`compiler/parse/item.go`) but no const evaluation or const-to-literal
+    propagation exists. The checker visits `ConstDecl.Value` but does not
+    intern the result.
+
+18. **Type aliases** — `type Id = U64;` is parsed but never resolved by the
+    checker. Using a type alias would produce a struct type with the alias
+    name instead of the underlying type.
+
+19. **Where clauses** — `fn foo[T]() where T: Display` is parsed but the
+    constraint is never checked. Generic type params can be used without
+    satisfying any declared bounds.
+
+20. **Trait bounds on generic params** — `fn foo[T: Display](x: T)` is parsed
+    but the `Display` bound is not enforced during type checking. Any type
+    can be passed regardless of bounds.
+
+21. **@value struct decorator** — The language guide describes `@value struct`
+    as a struct that auto-derives core traits. The decorator is parsed but
+    no auto-derivation occurs.
+
+22. **@rank(N) lock ordering** — The language guide describes static lock
+    ordering annotations. Parsed but not enforced.
+
+23. **Module visibility (pub)** — `pub` is parsed on items but no
+    public/private enforcement occurs across module boundaries. All symbols
+    are accessible if resolved.
+
+24. **Associated types in traits** — The language guide mentions associated
+    items in trait declarations. Not implemented.
+
+25. **Trait default method implementations** — The `Default` trait exists in
+    `stdlib/core/traits.fuse` but there is no mechanism for a trait to
+    provide a default method body.
+
+26. **Generic impl blocks** — `impl[T] Trait for Container[T]` is not
+    handled by the specializer or checker. Only concrete impls work.
+
+27. **Recursive type detection** — The checker does not detect infinite-size
+    types like `struct Node { next: Node }`.
+
+28. **String escape sequences** — The language guide specifies `\n`, `\r`,
+    `\t`, `\\`, `\"`, and Unicode escapes. The lexer may not implement the
+    full escape suite. No e2e test verifies escape handling in emitted C.
+
+## Category 4: Standard library gaps
+
+The stdlib consists of two tiers: `stdlib/core/` (OS-free) and `stdlib/full/`
+(hosted). Every method body below would fail if compiled through the current
+pipeline because they depend on features from Categories 1–3.
+
+29. **stdlib/core/option.fuse** — `impl Option` declares `is_some()`,
+    `is_none()`, `unwrap()`, `unwrap_or()`, `map()`. The `map()` method
+    takes `f: Fn` (unparameterized function type). The impl block is not
+    generic (`impl Option` not `impl[T] Option[T]`). These methods have
+    never been compiled.
+
+30. **stdlib/core/result.fuse** — Same pattern as Option: `impl Result`
+    declares methods that use pattern matching on `self`, but the impl is
+    not generic and `map()` takes an unparameterized `Fn`.
+
+31. **stdlib/core/string.fuse** — `String` struct with `toUpper()`,
+    `toLower()`, `len()`, `is_empty()`, `as_bytes()`, `contains()`, etc.
+    Method bodies return `self.clone()` (stub). `clone()` is not
+    implemented. `as_bytes()` returns `[U8]` slice but slice infrastructure
+    is incomplete.
+
+32. **stdlib/core/collections.fuse** — `List[T]`, `Map[K, V]`, `Set[T]`
+    declared with method stubs. `List.push()` body is empty.
+    `Map.insert()` returns `Option` without a type parameter. None of these
+    can compile.
+
+33. **stdlib/core/traits.fuse** — Core traits (`Equatable`, `Comparable`,
+    `Hashable`, `Display`, `Debug`, `Default`, `Clone`, `Drop`, `Iterator`,
+    `IntoIterator`) are declared. `Iterator.next()` returns `Option` without
+    a type parameter. `IntoIterator.into_iter()` returns `Self`. None have
+    implementations on any concrete type.
+
+34. **stdlib/core/hash.fuse** — Hash module for the Hashable trait surface.
+    Not compiled or tested.
+
+35. **stdlib/core/primitives.fuse** — Declares type aliases (`type Int =
+    ISize`, `type Float = F64`) and primitive method stubs. Type aliases are
+    not implemented (Category 3, item 18).
+
+36. **stdlib/full/io.fuse** — `print()`, `println()`, `eprint()`,
+    `eprintln()` call `fuse_rt_io_write_stdout/stderr` via extern FFI inside
+    `unsafe` blocks. `File` struct with `open()`, `read()`, `write()`,
+    `close()`. These depend on: String.as_bytes() (broken), unsafe blocks
+    (unenforced), extern FFI (works), Result[T, E] (works after Wave 17).
+
+37. **stdlib/full/chan.fuse** — `Chan[T]` with stub method bodies. `send()`
+    returns `Ok(())`, `recv()` returns `Err("channel empty")`. No runtime
+    queue integration.
+
+38. **stdlib/full/thread.fuse** — `thread_spawn()` calls
+    `fuse_rt_thread_spawn` via FFI. Depends on closure-to-function-pointer
+    conversion which is incomplete.
+
+39. **stdlib/full/sync.fuse** — Mutex, Cond with extern declarations for
+    runtime sync primitives. Not compiled or tested.
+
+40. **stdlib/full/os.fuse** — `argc()`, `argv()`, `env_get()`, `exit()` via
+    runtime FFI. Not compiled or tested.
+
+**Cascading effects**:
+Wave 18 (Retirement of Go and C) cannot proceed until every feature specified
+in the language guide has a proof program. The standard library must compile
+through the pipeline and its methods must produce correct behavior. A new wave
+or set of phases must be inserted between Wave 17 and Wave 18 to close these
+gaps systematically.
+
+The following dependency chains determine the implementation order:
+- I/O (print/println) depends on: String, slices, unsafe blocks, extern FFI
+- Iteration (for..in) depends on: Iterator trait, generic impls, closures
+- Collections (List, Map, Set) depend on: generics, iteration, traits, Drop
+- Channels depend on: generics, threads, runtime integration
+- Self-hosting (Stage 2) depends on: all of the above
+
+**Architectural lesson**:
+A language is not complete when its grammar is parsed. A language is not
+complete when its type checker runs. A language is complete when its standard
+library compiles, its proof programs run, and a user can write a non-trivial
+program using documented features and get correct behavior. Every feature in
+the language guide that lacks a proof program is an untested claim.
+
+**Verification**:
+This entry is verified when every item above (1–40) either has an e2e proof
+program that passes, or has been explicitly descoped from the language guide
+with a rationale. The minimum bar for Wave 18 readiness is: closures, I/O
+(print/println), iteration (for..in), trait dispatch, and Drop must all work
+end-to-end.

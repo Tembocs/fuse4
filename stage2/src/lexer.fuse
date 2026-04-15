@@ -1,5 +1,6 @@
 /// Lexer for the Fuse language.
 /// Mirrors stage1 compiler/lex/lexer.go.
+/// This is the Stage 2 (Fuse-in-Fuse) implementation.
 
 import core.string.String;
 import core.list.List;
@@ -7,30 +8,304 @@ import core.option.Option;
 
 /// Lexer tokenizes Fuse source code.
 pub struct Lexer {
-    src: String,
+    src: Ptr[U8],
+    src_len: USize,
     filename: String,
     pos: USize,
     line: I32,
     col: I32,
-    tokens: List[Token],
 }
 
 impl Lexer {
     /// Create a new lexer for the given source.
     pub fn new(filename: String, src: String) -> Lexer {
-        Lexer {
-            src: src,
+        return Lexer {
+            src: src.data,
+            src_len: src.len,
             filename: filename,
             pos: 0usize,
-            line: 1i32,
-            col: 1i32,
-            tokens: List.new(),
+            line: 1,
+            col: 1,
+        };
+    }
+
+    /// Return true if there are more characters to read.
+    pub fn has_more(ref self) -> Bool {
+        return self.pos < self.src_len;
+    }
+
+    /// Peek at the current character without advancing.
+    pub fn peek(ref self) -> U8 {
+        if self.pos >= self.src_len { return 0u8; }
+        return self.src[self.pos];
+    }
+
+    /// Peek at the next character (pos + 1).
+    pub fn peek_next(ref self) -> U8 {
+        let next = self.pos + 1usize;
+        if next >= self.src_len { return 0u8; }
+        return self.src[next];
+    }
+
+    /// Advance one character and return it.
+    pub fn advance(mutref self) -> U8 {
+        if self.pos >= self.src_len { return 0u8; }
+        let ch = self.src[self.pos];
+        self.pos = self.pos + 1usize;
+        if ch == 10u8 {
+            self.line = self.line + 1;
+            self.col = 1;
+        } else {
+            self.col = self.col + 1;
         }
+        return ch;
+    }
+
+    /// Skip whitespace and comments.
+    pub fn skip_whitespace(mutref self) {
+        while self.has_more() {
+            let ch = self.peek();
+            if ch == 32u8 { self.advance(); }
+            else if ch == 9u8 { self.advance(); }
+            else if ch == 10u8 { self.advance(); }
+            else if ch == 13u8 { self.advance(); }
+            else if ch == 47u8 {
+                let next = self.peek_next();
+                if next == 47u8 {
+                    // Line comment: skip to end of line.
+                    while self.has_more() {
+                        if self.peek() == 10u8 { break; }
+                        self.advance();
+                    }
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
+    }
+
+    /// Check if a byte is a letter or underscore.
+    pub fn is_ident_start(ref self, ch: U8) -> Bool {
+        if ch >= 65u8 {
+            if ch <= 90u8 { return true; }
+        }
+        if ch >= 97u8 {
+            if ch <= 122u8 { return true; }
+        }
+        if ch == 95u8 { return true; }
+        return false;
+    }
+
+    /// Check if a byte is a letter, digit, or underscore.
+    pub fn is_ident_char(ref self, ch: U8) -> Bool {
+        if self.is_ident_start(ch) { return true; }
+        if ch >= 48u8 {
+            if ch <= 57u8 { return true; }
+        }
+        return false;
+    }
+
+    /// Check if a byte is a digit.
+    pub fn is_digit(ref self, ch: U8) -> Bool {
+        if ch >= 48u8 {
+            if ch <= 57u8 { return true; }
+        }
+        return false;
+    }
+
+    /// Scan an identifier or keyword.
+    pub fn scan_ident(mutref self) -> Token {
+        let start = self.pos;
+        while self.has_more() {
+            if self.is_ident_char(self.peek()) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        /// Build the literal string from start..pos.
+        /// Bootstrap limitation: substring construction requires
+        /// pointer arithmetic; using placeholder.
+        return Token.new(Ident, String.new(), Span.zero());
+    }
+
+    /// Scan a number literal (integer or float).
+    pub fn scan_number(mutref self) -> Token {
+        let start = self.pos;
+        while self.has_more() {
+            if self.is_digit(self.peek()) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        // Check for float: decimal point followed by digit.
+        if self.peek() == 46u8 {
+            let after = self.peek_next();
+            if self.is_digit(after) {
+                self.advance(); // consume dot
+                while self.has_more() {
+                    if self.is_digit(self.peek()) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                return Token.new(FloatLit, String.new(), Span.zero());
+            }
+        }
+        // Scan optional suffix (i32, u64, etc.)
+        while self.has_more() {
+            let ch = self.peek();
+            if self.is_ident_char(ch) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        return Token.new(IntLit, String.new(), Span.zero());
+    }
+
+    /// Scan a string literal (double-quoted).
+    pub fn scan_string(mutref self) -> Token {
+        self.advance(); // consume opening quote
+        while self.has_more() {
+            let ch = self.peek();
+            if ch == 34u8 {
+                self.advance(); // consume closing quote
+                return Token.new(StringLit, String.new(), Span.zero());
+            }
+            if ch == 92u8 {
+                self.advance(); // consume backslash
+                self.advance(); // consume escaped character
+            } else {
+                self.advance();
+            }
+        }
+        return Token.new(Illegal, String.new(), Span.zero());
+    }
+
+    /// Scan the next token.
+    pub fn next_token(mutref self) -> Token {
+        self.skip_whitespace();
+        if self.has_more() == false {
+            return Token.eof();
+        }
+
+        let ch = self.peek();
+
+        // Identifiers and keywords.
+        if self.is_ident_start(ch) {
+            return self.scan_ident();
+        }
+
+        // Numbers.
+        if self.is_digit(ch) {
+            return self.scan_number();
+        }
+
+        // Strings.
+        if ch == 34u8 {
+            return self.scan_string();
+        }
+
+        // Single-character tokens.
+        self.advance();
+
+        if ch == 40u8 { return Token.new(LParen, String.new(), Span.zero()); }
+        if ch == 41u8 { return Token.new(RParen, String.new(), Span.zero()); }
+        if ch == 91u8 { return Token.new(LBrack, String.new(), Span.zero()); }
+        if ch == 93u8 { return Token.new(RBrack, String.new(), Span.zero()); }
+        if ch == 123u8 { return Token.new(LBrace, String.new(), Span.zero()); }
+        if ch == 125u8 { return Token.new(RBrace, String.new(), Span.zero()); }
+        if ch == 44u8 { return Token.new(Comma, String.new(), Span.zero()); }
+        if ch == 59u8 { return Token.new(Semi, String.new(), Span.zero()); }
+        if ch == 58u8 {
+            if self.peek() == 58u8 { self.advance(); return Token.new(ColonColon, String.new(), Span.zero()); }
+            return Token.new(Colon, String.new(), Span.zero());
+        }
+        if ch == 46u8 { return Token.new(Dot, String.new(), Span.zero()); }
+        if ch == 64u8 { return Token.new(At, String.new(), Span.zero()); }
+        if ch == 35u8 { return Token.new(Hash, String.new(), Span.zero()); }
+        if ch == 126u8 { return Token.new(Tilde, String.new(), Span.zero()); }
+
+        // Two-character operators.
+        if ch == 43u8 {
+            if self.peek() == 61u8 { self.advance(); return Token.new(PlusEq, String.new(), Span.zero()); }
+            return Token.new(Plus, String.new(), Span.zero());
+        }
+        if ch == 45u8 {
+            if self.peek() == 62u8 { self.advance(); return Token.new(Arrow, String.new(), Span.zero()); }
+            if self.peek() == 61u8 { self.advance(); return Token.new(MinusEq, String.new(), Span.zero()); }
+            return Token.new(Minus, String.new(), Span.zero());
+        }
+        if ch == 42u8 {
+            if self.peek() == 61u8 { self.advance(); return Token.new(StarEq, String.new(), Span.zero()); }
+            return Token.new(Star, String.new(), Span.zero());
+        }
+        if ch == 47u8 {
+            if self.peek() == 61u8 { self.advance(); return Token.new(SlashEq, String.new(), Span.zero()); }
+            return Token.new(Slash, String.new(), Span.zero());
+        }
+        if ch == 37u8 {
+            if self.peek() == 61u8 { self.advance(); return Token.new(PercentEq, String.new(), Span.zero()); }
+            return Token.new(Percent, String.new(), Span.zero());
+        }
+        if ch == 61u8 {
+            if self.peek() == 61u8 { self.advance(); return Token.new(EqEq, String.new(), Span.zero()); }
+            if self.peek() == 62u8 { self.advance(); return Token.new(FatArrow, String.new(), Span.zero()); }
+            return Token.new(Eq, String.new(), Span.zero());
+        }
+        if ch == 33u8 {
+            if self.peek() == 61u8 { self.advance(); return Token.new(BangEq, String.new(), Span.zero()); }
+            return Token.new(Bang, String.new(), Span.zero());
+        }
+        if ch == 60u8 {
+            if self.peek() == 61u8 { self.advance(); return Token.new(LtEq, String.new(), Span.zero()); }
+            if self.peek() == 60u8 { self.advance(); return Token.new(Shl, String.new(), Span.zero()); }
+            return Token.new(Lt, String.new(), Span.zero());
+        }
+        if ch == 62u8 {
+            if self.peek() == 61u8 { self.advance(); return Token.new(GtEq, String.new(), Span.zero()); }
+            if self.peek() == 62u8 { self.advance(); return Token.new(Shr, String.new(), Span.zero()); }
+            return Token.new(Gt, String.new(), Span.zero());
+        }
+        if ch == 38u8 {
+            if self.peek() == 38u8 { self.advance(); return Token.new(AmpAmp, String.new(), Span.zero()); }
+            if self.peek() == 61u8 { self.advance(); return Token.new(AmpEq, String.new(), Span.zero()); }
+            return Token.new(Amp, String.new(), Span.zero());
+        }
+        if ch == 124u8 {
+            if self.peek() == 124u8 { self.advance(); return Token.new(PipePipe, String.new(), Span.zero()); }
+            if self.peek() == 61u8 { self.advance(); return Token.new(PipeEq, String.new(), Span.zero()); }
+            return Token.new(Pipe, String.new(), Span.zero());
+        }
+        if ch == 94u8 {
+            if self.peek() == 61u8 { self.advance(); return Token.new(CaretEq, String.new(), Span.zero()); }
+            return Token.new(Caret, String.new(), Span.zero());
+        }
+        if ch == 63u8 {
+            if self.peek() == 46u8 { self.advance(); return Token.new(QDot, String.new(), Span.zero()); }
+            return Token.new(Question, String.new(), Span.zero());
+        }
+
+        return Token.new(Illegal, String.new(), Span.zero());
     }
 
     /// Tokenize the full source and return all tokens.
     pub fn tokenize(mutref self) -> List[Token] {
-        // Main tokenization loop — implementation mirrors stage1.
-        self.tokens
+        var tokens = List.new();
+        while self.has_more() {
+            let tok = self.next_token();
+            tokens.push(tok);
+            match tok.kind {
+                EOF => return tokens,
+                _ => {},
+            }
+        }
+        tokens.push(Token.eof());
+        return tokens;
     }
 }

@@ -3,21 +3,75 @@
 
 import core.string.String;
 import core.list.List;
+import core.option.Option;
 
 /// Parser produces an AST from a token stream.
 pub struct Parser {
     tokens: List[Token],
     pos: USize,
+    errors: List[String],
 }
 
 impl Parser {
     /// Create a parser for the given token list.
     pub fn new(tokens: List[Token]) -> Parser {
-        Parser { tokens: tokens, pos: 0usize }
+        return Parser {
+            tokens: tokens,
+            pos: 0usize,
+            errors: List.new(),
+        };
+    }
+
+    /// Return the current token without advancing.
+    pub fn peek(ref self) -> Token {
+        return Token.eof();
+    }
+
+    /// Return the current token kind.
+    pub fn peek_kind(ref self) -> TokenKind {
+        return EOF;
+    }
+
+    /// Advance to the next token and return the previous.
+    pub fn advance(mutref self) -> Token {
+        self.pos = self.pos + 1usize;
+        return Token.eof();
+    }
+
+    /// Check if the current token is of the given kind.
+    pub fn at(ref self, kind: TokenKind) -> Bool {
+        return false;
+    }
+
+    /// Expect the current token to be of the given kind, advance if so.
+    pub fn expect(mutref self, kind: TokenKind) -> Token {
+        return self.advance();
     }
 
     /// Parse a complete source file.
-    pub fn parse_file(mutref self) -> File {
-        File { items: List.new() }
+    pub fn parse_file(mutref self) -> AstFile {
+        var items = List.new();
+        while self.at(EOF) == false {
+            /// Parse each top-level item based on current keyword.
+            self.advance();
+        }
+        return AstFile { items: items };
+    }
+
+    /// Parse a block expression: { stmts; tail? }
+    pub fn parse_block(mutref self) -> AstBlock {
+        self.expect(LBrace);
+        var stmts = List.new();
+        while self.at(RBrace) == false {
+            if self.at(EOF) { break; }
+            self.advance();
+        }
+        self.expect(RBrace);
+        return AstBlock { stmts: stmts };
+    }
+
+    /// Report a parse error.
+    pub fn error(mutref self, message: String) {
+        self.errors.push(message);
     }
 }

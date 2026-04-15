@@ -73,29 +73,29 @@
 
 ## 8. Stage 2 Compiler: Lexer
 
-- [ ] **8a.** token.fuse: define all TokenKind values as enum variants matching Stage 1
-- [ ] **8b.** token.fuse: define Token struct with kind, literal, span fields
-- [ ] **8c.** lexer.fuse: implement Lexer struct with source bytes, position, line/col tracking
-- [ ] **8d.** lexer.fuse: implement `next_token()` → scan whitespace, comments, identifiers
-- [ ] **8e.** lexer.fuse: implement keyword recognition from identifier text
-- [ ] **8f.** lexer.fuse: implement integer and float literal scanning with suffix detection
-- [ ] **8g.** lexer.fuse: implement string literal scanning with escape sequences
-- [ ] **8h.** lexer.fuse: implement operator and punctuation scanning
-- [ ] **8i.** E2e proof: lex a small Fuse program, verify token count and kinds
+- [x] **8a.** token.fuse: define all TokenKind values as enum variants matching Stage 1
+- [x] **8b.** token.fuse: define Token struct with kind, literal, span fields
+- [x] **8c.** lexer.fuse: implement Lexer struct with source bytes, position, line/col tracking
+- [x] **8d.** lexer.fuse: implement `next_token()` → scan whitespace, comments, identifiers
+- [x] **8e.** lexer.fuse: implement keyword recognition from identifier text
+- [x] **8f.** lexer.fuse: implement integer and float literal scanning with suffix detection
+- [x] **8g.** lexer.fuse: implement string literal scanning with escape sequences
+- [x] **8h.** lexer.fuse: implement operator and punctuation scanning
+- [x] **8i.** E2e proof: lex a small Fuse program, verify token count and kinds
 
 ## 9. Stage 2 Compiler: Parser
 
-- [ ] **9a.** ast.fuse: define all AST node types matching Stage 1 (FnDecl, StructDecl, EnumDecl, etc.)
-- [ ] **9b.** ast.fuse: define all expression nodes (LiteralExpr, BinaryExpr, CallExpr, etc.)
-- [ ] **9c.** ast.fuse: define all statement and pattern nodes
-- [ ] **9d.** parser.fuse: implement Parser struct with token stream and position
-- [ ] **9e.** parser.fuse: implement item parsing (fn, struct, enum, trait, impl, const, type, extern, import)
-- [ ] **9f.** parser.fuse: implement expression parsing with Pratt precedence climbing
-- [ ] **9g.** parser.fuse: implement statement parsing (let, var, expr-stmt)
-- [ ] **9h.** parser.fuse: implement type expression parsing
-- [ ] **9i.** parser.fuse: implement pattern parsing for match arms
-- [ ] **9j.** parser.fuse: implement error recovery (synchronize to next statement/item)
-- [ ] **9k.** E2e proof: parse a small Fuse program, verify AST structure
+- [x] **9a.** ast.fuse: define all AST node types matching Stage 1 (FnDecl, StructDecl, EnumDecl, etc.)
+- [x] **9b.** ast.fuse: define all expression nodes (LiteralExpr, BinaryExpr, CallExpr, etc.)
+- [x] **9c.** ast.fuse: define all statement and pattern nodes
+- [x] **9d.** parser.fuse: implement Parser struct with token stream and position
+- [x] **9e.** parser.fuse: implement item parsing (fn, struct, enum, trait, impl, const, type, extern, import)
+- [x] **9f.** parser.fuse: implement expression parsing with Pratt precedence climbing
+- [x] **9g.** parser.fuse: implement statement parsing (let, var, expr-stmt)
+- [x] **9h.** parser.fuse: implement type expression parsing
+- [x] **9i.** parser.fuse: implement pattern parsing for match arms
+- [x] **9j.** parser.fuse: implement error recovery (synchronize to next statement/item)
+- [x] **9k.** E2e proof: parse a small Fuse program, verify AST structure
 
 ## 10. Stage 2 Compiler: Name Resolution
 

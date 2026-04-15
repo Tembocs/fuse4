@@ -42,9 +42,31 @@ pub struct Span {
     end_col: I32,
 }
 
+impl Span {
+    pub fn zero() -> Span {
+        return Span {
+            file: String.new(),
+            start_line: 0,
+            start_col: 0,
+            end_line: 0,
+            end_col: 0,
+        };
+    }
+}
+
 /// Token is a single lexical token with its source span.
 pub struct Token {
     kind: TokenKind,
     literal: String,
     span: Span,
+}
+
+impl Token {
+    pub fn new(kind: TokenKind, literal: String, span: Span) -> Token {
+        return Token { kind: kind, literal: literal, span: span };
+    }
+
+    pub fn eof() -> Token {
+        return Token { kind: EOF, literal: String.new(), span: Span.zero() };
+    }
 }

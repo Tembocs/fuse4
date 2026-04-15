@@ -1476,3 +1476,244 @@ downstream.
 This entry is verified when `impl[T] Option[T] { fn unwrap_or(ref self,
 default: T) -> T { ... } }` compiles, and a program calling
 `Some(42).unwrap_or(0)` produces the correct result via an e2e test.
+
+**Status**: VERIFIED. Generic impl blocks were implemented in Wave 18 via
+AST-level specialization: the monomorphizer generates concrete impl methods
+as top-level functions named `Type__Args__Method`. The e2e proof program
+`Some(42).unwrap_or(0)` passes.
+
+### L019 — Seven features that must be implemented early in any Fuse-like language
+
+Date: 2026-04-15
+Discovered during: Wave 18 completion audit
+
+**Reproducer**:
+After implementing 33 features with 63 e2e proof programs, 7 features
+remain deferred. Each was deferred because it depends on infrastructure
+that should have been built earlier in the plan. This entry records what
+those features are, why each must be implemented early, and the concrete
+dependency each creates when missing.
+
+**What was tried first**:
+The implementation plan scheduled these features implicitly — they were
+assumed to "fall out" from other work. None were given explicit waves,
+phases, or proof programs until they blocked downstream features.
+
+**Root cause**:
+Each of these features is foundational infrastructure that other features
+depend on. When they are missing, the features that depend on them cannot
+be implemented, and the dependency is only discovered when the downstream
+work is attempted.
+
+**Spec gap**:
+The language guide describes all seven features but does not identify
+their cross-cutting nature or their position in the dependency graph.
+
+**Plan gap**:
+The implementation plan does not contain explicit waves or phases for any
+of these features. They were expected to be part of other work.
+
+**Fix**:
+The following seven features must be scheduled as explicit, early work
+items in any future Fuse implementation plan. Each includes: what it is,
+why it must be early, what breaks without it, and when it should be
+implemented.
+
+**1. Associated types in traits**
+
+What: `trait Iterator { type Item; fn next(mutref self) -> Option[Self.Item]; }`
+
+Why early: Associated types are the mechanism that makes traits
+composable. Without them, every trait that produces or consumes a
+parameterized type (Iterator, IntoIterator, FromStr, Display) cannot be
+expressed. The Iterator trait is the foundation of `for..in`, which is
+the primary loop construct in the language.
+
+What breaks without it: Iterator, IntoIterator, for..in loops, any trait
+method whose return type depends on the implementing type.
+
+When to implement: During Wave 05 (type checking), immediately after
+trait method resolution. Associated types are a type system feature —
+they require the checker to resolve `Self.Item` during method signature
+analysis.
+
+**2. for..in iteration (Iterator protocol)**
+
+What: `for x in collection { body }` desugars to
+`let iter = collection.into_iter(); loop { match iter.next() { Some(x) => body, None => break } }`.
+
+Why early: `for..in` is the primary iteration construct. Every program
+that processes a sequence uses it. Without it, users must write manual
+while loops with index tracking, which defeats the purpose of having an
+Iterator trait.
+
+What breaks without it: All collection processing, most non-trivial
+programs, the majority of stdlib methods that operate on sequences.
+
+When to implement: During Wave 07 (HIR to MIR lowering), after
+associated types (1) and the Iterator trait are in place. The lowerer
+desugars `for..in` to a loop with `next()` calls.
+
+Dependencies: Associated types (1), generic impl blocks (L018), the
+Option type.
+
+**3. Optional chaining (`?.`)**
+
+What: `expr?.field` evaluates `expr`; if it is `None` or `Err`, the
+enclosing expression short-circuits to `None`/`Err`; otherwise it
+accesses `.field` on the inner value.
+
+Why early: Optional chaining is the ergonomic complement to `?` for
+error propagation. It is used pervasively in any code that navigates
+nested optional or result types. Without it, users must write nested
+`match` expressions for every optional field access.
+
+What breaks without it: Any code that chains optional field accesses
+(e.g., `config?.database?.host`), most real-world error handling
+patterns.
+
+When to implement: During Wave 07, after the `?` operator and
+Option/Result type awareness are in place. The lowerer desugars `?.` to
+a discriminant check and conditional field access.
+
+Dependencies: Option/Result type recognition in the checker, pattern
+matching on enums.
+
+**4. Where clause enforcement**
+
+What: `fn foo[T]() where T: Display` constrains `T` to types that
+implement `Display`. The compiler rejects calls where the concrete type
+arg does not satisfy the constraint.
+
+Why early: Where clauses are the primary mechanism for expressing
+complex trait bounds that don't fit on the generic param list. They are
+syntactic sugar for bounds but are required for multi-constraint and
+cross-parameter constraints.
+
+What breaks without it: Any generic function with complex constraints
+compiles without validation, allowing type errors to surface in
+generated code rather than at the call site.
+
+When to implement: Alongside trait bounds enforcement (Wave 05 or
+Wave 17). The mechanism is identical to inline bounds — the checker
+reads constraints from the WhereClause instead of from GenericParam.Bounds.
+
+Dependencies: Trait impl tracking (already done).
+
+**5. Trait default method implementations**
+
+What: A trait method can have a body that serves as the default
+implementation. Impls that don't override the method inherit the default.
+
+```fuse
+trait Display {
+    fn fmt(ref self, f: mutref Formatter) -> Result;
+    fn to_string(ref self) -> String {
+        // default implementation using fmt
+    }
+}
+```
+
+Why early: Default methods are how the stdlib provides convenience
+methods without requiring every type to implement them. `Iterator` has
+dozens of default methods (map, filter, collect, count, etc.) that all
+build on `next()`. Without defaults, every impl must re-implement all
+methods, which makes traits impractical for anything beyond simple
+interfaces.
+
+What breaks without it: The Iterator trait is unusable in practice (every
+impl would need to implement map, filter, fold, etc.). Display, Debug,
+and most stdlib traits rely on default methods for their convenience API.
+
+When to implement: During Wave 05 (type checking), when trait methods
+are registered. The checker stores default method bodies and the driver
+compiles them when an impl doesn't override them.
+
+Dependencies: Trait method resolution (already done).
+
+**6. Module visibility (`pub`) enforcement**
+
+What: Items not marked `pub` are private to their module. Accessing a
+private item from another module produces a diagnostic.
+
+Why early: Visibility is a fundamental encapsulation mechanism. Without
+it, the stdlib cannot have internal implementation details — everything
+is accessible, which prevents API stability and makes refactoring
+unsafe.
+
+What breaks without it: The stdlib cannot distinguish public API from
+internal implementation. Users can depend on internal details that may
+change. The safety guarantees of `unsafe` bridge files are weakened
+because internal unsafe helpers are accessible from user code.
+
+When to implement: During Wave 03 (name resolution) or Wave 05 (type
+checking). The resolver already tracks `Symbol.Public`; enforcement
+requires checking the flag when resolving cross-module references.
+
+Dependencies: Module graph and import resolution (already done).
+
+**7. Array literals and array types**
+
+What: `[1, 2, 3, 4]` is an array literal of type `[I32; 4]`. Arrays
+have a fixed size known at compile time.
+
+Why early: Array literals are the primary way to create sequences
+inline. Without them, `for..in` has nothing to iterate over in simple
+programs, the proof program `for x in [1, 2, 3] { ... }` cannot be
+written, and any test that needs a small fixed collection must use
+individual variables.
+
+What breaks without it: for..in proof programs, any program that needs
+a fixed-size collection, Iterator impls for arrays.
+
+When to implement: During Wave 02 (parser) for syntax and Wave 04
+(type table) for the array type. Array literals are expressions that
+construct an array value. The lowerer emits them as C array initializers.
+
+Dependencies: None — array literals are a self-contained language
+feature.
+
+**Cascading effects**:
+These seven features form a dependency chain that, when any link is
+missing, blocks everything downstream:
+
+```
+Array literals (7)
+    → for..in needs something to iterate over
+Associated types (1)
+    → Iterator trait
+        → for..in loops (2)
+            → every non-trivial program
+Default methods (5)
+    → Iterator convenience methods (map, filter, etc.)
+        → practical stdlib usage
+Optional chaining (3)
+    → ergonomic error/option handling
+Where clauses (4)
+    → complex generic constraints
+Pub visibility (6)
+    → stdlib encapsulation
+```
+
+**Architectural lesson**:
+A language implementation plan must identify foundational features and
+schedule them before the features that depend on them. The test for
+whether a feature is foundational: if removing it makes the stdlib
+inexpressible or forces users to write workarounds for basic patterns,
+it is foundational and must be implemented early. All seven features
+above fail this test — without any one of them, either the stdlib
+cannot be written or users cannot write idiomatic programs.
+
+The correct scheduling for a Fuse-like language is:
+
+1. Lexer, parser (Waves 01–02) — including array literals
+2. Name resolution with pub visibility (Wave 03)
+3. Type checking with associated types, trait bounds, where clauses,
+   default methods (Wave 05)
+4. Generic impl blocks (Wave 05 or dedicated wave)
+5. HIR/MIR lowering with for..in, `?.` desugaring (Wave 07)
+6. Stdlib (Wave 12+) — only after ALL of the above
+
+**Verification**:
+This entry is verified when all seven features have e2e proof programs
+or are explicitly descoped with a rationale in the language guide.

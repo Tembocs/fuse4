@@ -23,13 +23,23 @@ type instantiation struct {
 	specName string   // specialized name, e.g. "identity__I32"
 }
 
+// genericImpl tracks a generic impl block and its methods.
+type genericImpl struct {
+	Target       string           // base type name (e.g., "Option")
+	GenericParams []ast.GenericParam
+	Methods      []*ast.FnDecl
+	ModKey       string           // module key
+}
+
 // SpecializeModules performs AST-level monomorphization on a module graph.
 // It mutates the AST in place: adding specialized function declarations
 // and rewriting generic call sites to reference them.
+// Also handles generic impl blocks by generating specialized methods.
 func SpecializeModules(graph *resolve.ModuleGraph) {
-	// --- Phase 1: index generic functions ---
+	// --- Phase 1: index generic functions and generic impl blocks ---
 	genericFns := map[string]*ast.FnDecl{}
 	genericMod := map[string]string{} // fn name → module key
+	var genericImpls []genericImpl
 	for _, key := range graph.Order {
 		mod := graph.Modules[key]
 		for _, item := range mod.File.Items {
@@ -37,13 +47,31 @@ func SpecializeModules(graph *resolve.ModuleGraph) {
 				genericFns[fn.Name] = fn
 				genericMod[fn.Name] = key
 			}
+			// Index generic impl blocks.
+			if impl, ok := item.(*ast.ImplDecl); ok && len(impl.GenericParams) > 0 {
+				targetName := ""
+				if pt, ok := impl.Target.(*ast.PathType); ok && len(pt.Segments) > 0 {
+					targetName = pt.Segments[len(pt.Segments)-1]
+				}
+				if targetName != "" {
+					var methods []*ast.FnDecl
+					for _, implItem := range impl.Items {
+						if fn, ok := implItem.(*ast.FnDecl); ok {
+							methods = append(methods, fn)
+						}
+					}
+					genericImpls = append(genericImpls, genericImpl{
+						Target:        targetName,
+						GenericParams: impl.GenericParams,
+						Methods:       methods,
+						ModKey:        key,
+					})
+				}
+			}
 		}
 	}
-	if len(genericFns) == 0 {
-		return
-	}
 
-	// --- Phase 2: collect instantiation sites ---
+	// --- Phase 2: collect function instantiation sites ---
 	var insts []instantiation
 	seen := map[string]bool{}
 	for _, key := range graph.Order {
@@ -55,26 +83,107 @@ func SpecializeModules(graph *resolve.ModuleGraph) {
 			}
 			collectCalls(fn.Body, genericFns, &insts, seen)
 		}
-	}
-	if len(insts) == 0 {
-		return
+		// Also scan impl method bodies for generic calls.
+		for _, item := range mod.File.Items {
+			if impl, ok := item.(*ast.ImplDecl); ok {
+				for _, implItem := range impl.Items {
+					if fn, ok := implItem.(*ast.FnDecl); ok && fn.Body != nil {
+						collectCalls(fn.Body, genericFns, &insts, seen)
+					}
+				}
+			}
+		}
 	}
 
 	// --- Phase 3: generate specialized functions ---
 	for _, inst := range insts {
-		genFn := genericFns[inst.genName]
+		genFn, ok := genericFns[inst.genName]
+		if !ok {
+			continue
+		}
 		modKey := genericMod[inst.genName]
 		mod := graph.Modules[modKey]
 
 		specFn := specializeFunction(genFn, inst.specName, inst.typeArgs)
 		mod.File.Items = append(mod.File.Items, specFn)
 
-		// Register in the module's symbol table so the checker can resolve it.
 		mod.Symbols.Define(&resolve.Symbol{
 			Name:   inst.specName,
 			Kind:   resolve.SymFunc,
 			Module: mod.Path,
 		})
+	}
+
+	// --- Phase 3b: collect concrete type instantiations for generic impls ---
+	// Build variant → enum mapping for inferring type args from constructors.
+	variantToEnum := map[string]string{} // variant name → enum name
+	genericEnums := map[string]*ast.EnumDecl{}
+	for _, key := range graph.Order {
+		mod := graph.Modules[key]
+		for _, item := range mod.File.Items {
+			if ed, ok := item.(*ast.EnumDecl); ok && len(ed.GenericParams) > 0 {
+				genericEnums[ed.Name] = ed
+				for _, v := range ed.Variants {
+					variantToEnum[v.Name] = ed.Name
+				}
+			}
+		}
+	}
+
+	// Scan all code for uses of generic enum/struct types to find concrete type args.
+	typeInsts := map[string][][]string{} // base type name → list of type arg sets
+	typeInstSeen := map[string]bool{}
+	for _, key := range graph.Order {
+		mod := graph.Modules[key]
+		for _, item := range mod.File.Items {
+			collectTypeInstantiations(item, &typeInsts, typeInstSeen, variantToEnum, genericEnums)
+		}
+	}
+
+	// --- Phase 3c: generate specialized impl methods ---
+	for _, gi := range genericImpls {
+		concrete, ok := typeInsts[gi.Target]
+		if !ok {
+			continue
+		}
+		mod := graph.Modules[gi.ModKey]
+		for _, typeArgs := range concrete {
+			if len(typeArgs) != len(gi.GenericParams) {
+				continue
+			}
+			for _, method := range gi.Methods {
+				specName := gi.Target + "__" + strings.Join(typeArgs, "_") + "__" + method.Name
+				if seen[specName] {
+					continue
+				}
+				seen[specName] = true
+
+				// Create a synthetic FnDecl with the impl's generic params so
+				// specializeFunction can build the correct substitution map.
+				synthFn := &ast.FnDecl{
+					Span:          method.Span,
+					Public:        method.Public,
+					Name:          method.Name,
+					GenericParams: gi.GenericParams, // impl's params, not method's
+					Params:        method.Params,
+					ReturnType:    method.ReturnType,
+					Body:          method.Body,
+				}
+				specFn := specializeFunction(synthFn, specName, typeArgs)
+
+				// Fix the self parameter type to the concrete target.
+				if len(specFn.Params) > 0 && specFn.Params[0].Name == "self" {
+					specFn.Params[0].Type = makeConcreteTypeExpr(gi.Target, typeArgs)
+				}
+
+				mod.File.Items = append(mod.File.Items, specFn)
+				mod.Symbols.Define(&resolve.Symbol{
+					Name:   specName,
+					Kind:   resolve.SymFunc,
+					Module: mod.Path,
+				})
+			}
+		}
 	}
 
 	// --- Phase 4: rewrite call sites ---
@@ -90,9 +199,157 @@ func SpecializeModules(graph *resolve.ModuleGraph) {
 	}
 }
 
+// collectTypeInstantiations scans an AST item for concrete uses of generic types.
+// E.g., Some(42) implies Option[I32], Ok(v) implies Result[T, E].
+func collectTypeInstantiations(item ast.Item, out *map[string][][]string, seen map[string]bool,
+	variantToEnum map[string]string, genericEnums map[string]*ast.EnumDecl) {
+	switch it := item.(type) {
+	case *ast.FnDecl:
+		if it.Body != nil {
+			collectTypeInstsExpr(it.Body, out, seen, variantToEnum, genericEnums)
+		}
+	case *ast.ImplDecl:
+		for _, implItem := range it.Items {
+			if fn, ok := implItem.(*ast.FnDecl); ok && fn.Body != nil {
+				collectTypeInstsExpr(fn.Body, out, seen, variantToEnum, genericEnums)
+			}
+		}
+	}
+}
+
+func collectTypeInstsExpr(e ast.Expr, out *map[string][][]string, seen map[string]bool,
+	v2e map[string]string, ge map[string]*ast.EnumDecl) {
+	if e == nil {
+		return
+	}
+	rec := func(expr ast.Expr) { collectTypeInstsExpr(expr, out, seen, v2e, ge) }
+
+	switch e := e.(type) {
+	case *ast.CallExpr:
+		// Explicit type args: Type[Args](...)
+		if idx, ok := e.Callee.(*ast.IndexExpr); ok {
+			if base, ok := idx.Expr.(*ast.IdentExpr); ok {
+				typeArgs := extractTypeArgs(idx.Index)
+				if len(typeArgs) > 0 {
+					key := base.Name + "__" + strings.Join(typeArgs, "_")
+					if !seen[key] {
+						seen[key] = true
+						(*out)[base.Name] = append((*out)[base.Name], typeArgs)
+					}
+				}
+			}
+		}
+		// Infer type from variant constructors: Some(42) → Option[I32]
+		if ident, ok := e.Callee.(*ast.IdentExpr); ok {
+			if enumName, isVariant := v2e[ident.Name]; isVariant {
+				if ed, ok := ge[enumName]; ok && len(ed.GenericParams) > 0 && len(e.Args) > 0 {
+					// Infer type args from constructor arguments.
+					typeArgs := make([]string, len(ed.GenericParams))
+					for i := range typeArgs {
+						typeArgs[i] = "I32" // default
+					}
+					// Match variant payload types to args.
+					for _, variant := range ed.Variants {
+						if variant.Name == ident.Name {
+							for pi, pt := range variant.Types {
+								ptName := typeExprString(pt)
+								if pi < len(e.Args) {
+									argType := inferExprType(e.Args[pi])
+									if argType != "" {
+										for gi, gp := range ed.GenericParams {
+											if gp.Name == ptName {
+												typeArgs[gi] = argType
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+					key := enumName + "__" + strings.Join(typeArgs, "_")
+					if !seen[key] {
+						seen[key] = true
+						(*out)[enumName] = append((*out)[enumName], typeArgs)
+					}
+				}
+			}
+		}
+		rec(e.Callee)
+		for _, a := range e.Args {
+			rec(a)
+		}
+	case *ast.BlockExpr:
+		for _, s := range e.Stmts {
+			switch s := s.(type) {
+			case *ast.LetStmt:
+				if s.Value != nil { rec(s.Value) }
+			case *ast.VarStmt:
+				if s.Value != nil { rec(s.Value) }
+			case *ast.ExprStmt:
+				rec(s.Expr)
+			}
+		}
+		if e.Tail != nil { rec(e.Tail) }
+	case *ast.ReturnExpr:
+		if e.Value != nil { rec(e.Value) }
+	case *ast.IfExpr:
+		rec(e.Cond); rec(e.Then)
+		if e.Else != nil { rec(e.Else) }
+	case *ast.MatchExpr:
+		rec(e.Subject)
+		for _, arm := range e.Arms {
+			rec(arm.Body)
+		}
+	case *ast.BinaryExpr:
+		rec(e.Left); rec(e.Right)
+	case *ast.UnaryExpr:
+		rec(e.Operand)
+	case *ast.WhileExpr:
+		rec(e.Cond); rec(e.Body)
+	case *ast.LoopExpr:
+		rec(e.Body)
+	case *ast.ForExpr:
+		rec(e.Iterable); rec(e.Body)
+	case *ast.FieldExpr:
+		rec(e.Expr)
+	case *ast.IndexExpr:
+		rec(e.Expr); rec(e.Index)
+	case *ast.AssignExpr:
+		rec(e.Target); rec(e.Value)
+	case *ast.TupleExpr:
+		for _, el := range e.Elems { rec(el) }
+	case *ast.StructLitExpr:
+		for _, f := range e.Fields { rec(f.Value) }
+	case *ast.ClosureExpr:
+		rec(e.Body)
+	case *ast.SpawnExpr:
+		rec(e.Expr)
+	case *ast.QuestionExpr:
+		rec(e.Expr)
+	case *ast.QDotExpr:
+		rec(e.Expr)
+	case *ast.BreakExpr:
+		if e.Value != nil { rec(e.Value) }
+	}
+}
+
+// makeConcreteTypeExpr creates a PathType with type arguments for the concrete target.
+func makeConcreteTypeExpr(baseName string, typeArgs []string) ast.TypeExpr {
+	var args []ast.TypeExpr
+	for _, ta := range typeArgs {
+		args = append(args, &ast.PathType{Segments: []string{ta}})
+	}
+	return &ast.PathType{Segments: []string{baseName}, TypeArgs: args}
+}
+
 // IsGenericFn returns true if a FnDecl has generic type parameters.
 func IsGenericFn(fn *ast.FnDecl) bool {
 	return len(fn.GenericParams) > 0
+}
+
+// IsGenericImpl returns true if an ImplDecl has generic type parameters.
+func IsGenericImpl(impl *ast.ImplDecl) bool {
+	return len(impl.GenericParams) > 0
 }
 
 // --- instantiation collection ---

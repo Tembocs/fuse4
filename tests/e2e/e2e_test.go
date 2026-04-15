@@ -488,6 +488,24 @@ fn main() -> I32 { return identity(42); }`,
 		WantExit: 42,
 	},
 
+	// ===== Wave 18 Phase 07: Generic impl blocks =====
+	{
+		Name: "w18_generic_impl_method",
+		Source: `enum Option[T] { Some(T), None }
+impl[T] Option[T] {
+	fn unwrap_or(ref self, default_val: T) -> T {
+		match self {
+			Some(v) => return v,
+			None => return default_val,
+		}
+	}
+}
+fn main() -> I32 {
+	let x = Some(42);
+	return x.unwrap_or(0);
+}`,
+		WantExit: 42,
+	},
 	// ===== Wave 18 Phase 07: Generic enum with standalone helper =====
 	{
 		Name: "w18_option_helper_fn",

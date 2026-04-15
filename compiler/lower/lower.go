@@ -4,6 +4,7 @@ package lower
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Tembocs/fuse4/compiler/diagnostics"
 	"github.com/Tembocs/fuse4/compiler/hir"
@@ -215,7 +216,6 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 	if fe, ok := n.Callee.(*hir.FieldExpr); ok {
 		// Method call: obj.method(args) → call(Fuse_method, &obj, args...)
 		recv := l.lowerExpr(fe.Expr)
-		// Pass receiver as a reference (borrow) for ref self methods.
 		recvType := fe.Expr.Meta().Type
 		refType := l.Types.InternRef(recvType)
 		recvRef := l.b.NewTemp(refType)
@@ -225,9 +225,20 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 		for _, a := range n.Args {
 			args = append(args, l.lowerExpr(a))
 		}
-		// Mangle the method name for C emission.
+		// Determine method name: for generic types, use the specialized name.
+		methodName := "Fuse_" + fe.Name
+		te := l.Types.Get(recvType)
+		if len(te.TypeArgs) > 0 && (te.Kind == typetable.KindEnum || te.Kind == typetable.KindStruct) {
+			// Generic type method: use type-qualified name.
+			var typeArgNames []string
+			for _, ta := range te.TypeArgs {
+				tae := l.Types.Get(ta)
+				typeArgNames = append(typeArgNames, tae.Name)
+			}
+			methodName = "Fuse_" + te.Name + "__" + strings.Join(typeArgNames, "_") + "__" + fe.Name
+		}
 		callee := l.b.NewTemp(l.Types.Unknown)
-		l.b.EmitConst(callee, l.Types.Unknown, "Fuse_"+fe.Name)
+		l.b.EmitConst(callee, l.Types.Unknown, methodName)
 		l.b.EmitCall(dest, callee, args, n.Meta().Type, true)
 		return dest
 	}

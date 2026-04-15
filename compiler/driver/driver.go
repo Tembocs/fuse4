@@ -101,6 +101,11 @@ func Build(opts BuildOptions) *BuildResult {
 				mirFunctions = append(mirFunctions, mirFn)
 
 			case *ast.ImplDecl:
+				// Skip generic impl blocks — their specialized methods are
+				// emitted as top-level functions by the monomorphizer.
+				if monomorph.IsGenericImpl(it) {
+					continue
+				}
 				for _, implItem := range it.Items {
 					fn, ok := implItem.(*ast.FnDecl)
 					if !ok || fn.Body == nil {

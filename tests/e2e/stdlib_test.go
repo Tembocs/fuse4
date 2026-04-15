@@ -21,13 +21,36 @@ func TestStdlibCoreCompiles(t *testing.T) {
 	}
 
 	coreFiles := []string{
+		// Traits (individual files)
+		"stdlib/core/equatable.fuse",
+		"stdlib/core/comparable.fuse",
+		"stdlib/core/hashable.fuse",
+		"stdlib/core/printable.fuse",
+		"stdlib/core/debuggable.fuse",
 		"stdlib/core/traits.fuse",
+		// Core types
 		"stdlib/core/option.fuse",
 		"stdlib/core/result.fuse",
-		"stdlib/core/primitives.fuse",
 		"stdlib/core/string.fuse",
+		"stdlib/core/fmt.fuse",
+		// Primitive type modules
+		"stdlib/core/bool.fuse",
+		"stdlib/core/int.fuse",
+		"stdlib/core/int8.fuse",
+		"stdlib/core/int32.fuse",
+		"stdlib/core/float.fuse",
+		"stdlib/core/float32.fuse",
+		"stdlib/core/uint8.fuse",
+		"stdlib/core/uint32.fuse",
+		"stdlib/core/uint64.fuse",
+		// Collections
+		"stdlib/core/list.fuse",
+		"stdlib/core/map.fuse",
+		"stdlib/core/set.fuse",
+		// Utilities
 		"stdlib/core/hash.fuse",
-		"stdlib/core/collections.fuse",
+		"stdlib/core/math.fuse",
+		// Runtime bridge
 		"stdlib/core/rt_bridge/alloc.fuse",
 		"stdlib/core/rt_bridge/panic.fuse",
 		"stdlib/core/rt_bridge/intrinsics.fuse",
@@ -54,10 +77,11 @@ func TestStdlibFullCompiles(t *testing.T) {
 
 	// Load core dependencies that full/ modules import.
 	coreDeps := map[string]string{
-		"stdlib/core/option.fuse":  "core.option",
-		"stdlib/core/result.fuse":  "core.result",
-		"stdlib/core/string.fuse":  "core.string",
-		"stdlib/core/traits.fuse":  "core.traits",
+		"stdlib/core/option.fuse":    "core.option",
+		"stdlib/core/result.fuse":    "core.result",
+		"stdlib/core/string.fuse":    "core.string",
+		"stdlib/core/traits.fuse":    "core.traits",
+		"stdlib/core/equatable.fuse": "core.equatable",
 	}
 	coreFiles := map[string]*ast.File{}
 	for path, modName := range coreDeps {

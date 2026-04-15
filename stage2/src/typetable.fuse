@@ -2,7 +2,7 @@
 /// Mirrors stage1 compiler/typetable/ package.
 
 import core.string.String;
-import core.collections.List;
+import core.list.List;
 
 /// TypeId is a handle into the TypeTable.
 pub type TypeId = I32;

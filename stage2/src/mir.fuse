@@ -2,7 +2,7 @@
 /// Mirrors stage1 compiler/mir/ package.
 
 import core.string.String;
-import core.collections.List;
+import core.list.List;
 
 /// LocalId identifies a local variable or temporary.
 pub type LocalId = I32;

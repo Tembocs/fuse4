@@ -1,0 +1,15 @@
+/// Int is the platform word-sized signed integer, equivalent to ISize.
+
+pub type Int = ISize;
+
+impl Equatable : ISize {
+    fn eq(ref self, other: ref Self) -> Bool { return self == other; }
+    fn ne(ref self, other: ref Self) -> Bool { return self != other; }
+}
+
+impl Comparable : ISize {
+    fn lt(ref self, other: ref Self) -> Bool { return self < other; }
+    fn le(ref self, other: ref Self) -> Bool { return self <= other; }
+    fn gt(ref self, other: ref Self) -> Bool { return self > other; }
+    fn ge(ref self, other: ref Self) -> Bool { return self >= other; }
+}

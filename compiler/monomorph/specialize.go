@@ -184,12 +184,15 @@ func SpecializeModules(graph *resolve.ModuleGraph) {
 					specFn.Params[0].Type = makeConcreteTypeExpr(gi.Target, typeArgs)
 				}
 
-				mod.File.Items = append(mod.File.Items, specFn)
-				mod.Symbols.Define(&resolve.Symbol{
-					Name:   specName,
-					Kind:   resolve.SymFunc,
-					Module: mod.Path,
-				})
+				// Only add if not already defined (prevents duplicates in multi-module graphs).
+				if mod.Symbols.LookupLocal(specName) == nil {
+					mod.File.Items = append(mod.File.Items, specFn)
+					mod.Symbols.Define(&resolve.Symbol{
+						Name:   specName,
+						Kind:   resolve.SymFunc,
+						Module: mod.Path,
+					})
+				}
 			}
 		}
 	}

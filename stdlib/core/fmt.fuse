@@ -1,0 +1,30 @@
+/// Formatting module: Formatter for building formatted output.
+
+/// Formatter is a buffer for building formatted output.
+pub struct Formatter {
+    buf: String,
+}
+
+impl Formatter {
+    /// Create a new empty formatter.
+    pub fn new() -> Formatter {
+        return Formatter { buf: String.new() };
+    }
+
+    /// Write a string to the formatter.
+    /// Bootstrap: stub implementation.
+    pub fn write_str(mutref self, s: ref String) -> Result {
+        return Ok(());
+    }
+
+    /// Write a single character.
+    /// Bootstrap: stub implementation.
+    pub fn write_char(mutref self, c: Char) -> Result {
+        return Ok(());
+    }
+
+    /// Return the accumulated string.
+    pub fn finish(owned self) -> String {
+        return self.buf;
+    }
+}

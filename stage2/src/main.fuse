@@ -2,7 +2,7 @@
 /// This is the Fuse compiler written in Fuse.
 
 import core.string.String;
-import core.collections.Map;
+import core.map.Map;
 import full.io;
 import full.os;
 

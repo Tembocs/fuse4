@@ -3,7 +3,7 @@
 /// AST is syntax-only: no resolved symbols, types, or metadata.
 
 import core.string.String;
-import core.collections.List;
+import core.list.List;
 import core.option.Option;
 
 /// AstFile is the root AST node for a source file.

@@ -6,7 +6,7 @@
 ///   Pass 2: check all function bodies.
 
 import core.string.String;
-import core.collections.Map;
+import core.map.Map;
 
 /// Checker performs type checking over a resolved module graph.
 pub struct Checker {

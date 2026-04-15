@@ -1,0 +1,13 @@
+/// I8 — 8-bit signed integer type and trait implementations.
+
+impl Equatable : I8 {
+    fn eq(ref self, other: ref Self) -> Bool { return self == other; }
+    fn ne(ref self, other: ref Self) -> Bool { return self != other; }
+}
+
+impl Comparable : I8 {
+    fn lt(ref self, other: ref Self) -> Bool { return self < other; }
+    fn le(ref self, other: ref Self) -> Bool { return self <= other; }
+    fn gt(ref self, other: ref Self) -> Bool { return self > other; }
+    fn ge(ref self, other: ref Self) -> Bool { return self >= other; }
+}

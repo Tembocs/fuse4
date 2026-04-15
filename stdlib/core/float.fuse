@@ -1,0 +1,15 @@
+/// Float is the default floating-point type, equivalent to F64.
+
+pub type Float = F64;
+
+impl Equatable : F64 {
+    fn eq(ref self, other: ref Self) -> Bool { return self == other; }
+    fn ne(ref self, other: ref Self) -> Bool { return self != other; }
+}
+
+impl Comparable : F64 {
+    fn lt(ref self, other: ref Self) -> Bool { return self < other; }
+    fn le(ref self, other: ref Self) -> Bool { return self <= other; }
+    fn gt(ref self, other: ref Self) -> Bool { return self > other; }
+    fn ge(ref self, other: ref Self) -> Bool { return self >= other; }
+}

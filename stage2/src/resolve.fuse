@@ -2,8 +2,8 @@
 /// Mirrors stage1 compiler/resolve/ package.
 
 import core.string.String;
-import core.collections.List;
-import core.collections.Map;
+import core.list.List;
+import core.map.Map;
 
 /// ModulePath is a dot-separated module identifier.
 pub struct ModulePath {

@@ -1,36 +1,4 @@
-/// Core traits that form the foundation of the Fuse type system.
-/// These traits are OS-free and do not depend on hosted functionality.
-
-/// Equatable enables value equality comparison.
-pub trait Equatable {
-    fn eq(ref self, other: ref Self) -> Bool;
-    fn ne(ref self, other: ref Self) -> Bool;
-}
-
-/// Comparable enables ordering comparisons.
-/// Requires Equatable as a supertrait.
-pub trait Comparable : Equatable {
-    fn lt(ref self, other: ref Self) -> Bool;
-    fn le(ref self, other: ref Self) -> Bool;
-    fn gt(ref self, other: ref Self) -> Bool;
-    fn ge(ref self, other: ref Self) -> Bool;
-}
-
-/// Hashable enables use as a hash map key.
-/// Requires Equatable as a supertrait.
-pub trait Hashable : Equatable {
-    fn hash(ref self) -> U64;
-}
-
-/// Display enables human-readable string formatting.
-pub trait Display {
-    fn fmt(ref self, f: mutref Formatter) -> Result;
-}
-
-/// Debug enables debug-oriented string formatting.
-pub trait Debug {
-    fn debug_fmt(ref self, f: mutref Formatter) -> Result;
-}
+/// Core traits that don't have their own module.
 
 /// Default enables construction of a default value.
 pub trait Default {
@@ -48,11 +16,12 @@ pub trait Drop {
 }
 
 /// Iterator enables sequential element access.
-pub trait Iterator {
-    fn next(mutref self) -> Option;
+/// Uses a generic type parameter T for the element type.
+pub trait Iterator[T] {
+    fn next(mutref self) -> Option[T];
 }
 
 /// IntoIterator enables conversion into an iterator.
-pub trait IntoIterator {
-    fn into_iter(owned self) -> Self;
+pub trait IntoIterator[T] {
+    fn into_iter(owned self) -> Iterator[T];
 }

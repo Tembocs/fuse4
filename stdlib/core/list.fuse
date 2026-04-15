@@ -1,0 +1,41 @@
+/// List is a growable, heap-allocated array.
+
+pub struct List[T] {
+    data: Ptr[T],
+    len: USize,
+    cap: USize,
+}
+
+impl[T] List[T] {
+    /// Create an empty list.
+    pub fn new() -> List[T] {
+        return List { data: Ptr.null(), len: 0usize, cap: 0usize };
+    }
+
+    /// Return the number of elements.
+    pub fn len(ref self) -> USize {
+        return self.len;
+    }
+
+    /// Return true if the list is empty.
+    pub fn is_empty(ref self) -> Bool {
+        return self.len == 0usize;
+    }
+
+    /// Append an element to the end.
+    /// Bootstrap: stub implementation.
+    pub fn push(mutref self, item: T) {
+    }
+
+    /// Remove and return the last element, or None.
+    /// Bootstrap: stub implementation.
+    pub fn pop(mutref self) -> Option[T] {
+        return None;
+    }
+
+    /// Return a reference to the element at index, or None.
+    /// Bootstrap: stub implementation.
+    pub fn get(ref self, index: USize) -> Option[T] {
+        return None;
+    }
+}

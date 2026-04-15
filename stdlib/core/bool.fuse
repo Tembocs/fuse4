@@ -1,0 +1,13 @@
+/// Bool type and methods.
+/// Bool is a built-in primitive. This module provides trait implementations.
+
+impl Equatable : Bool {
+    fn eq(ref self, other: ref Self) -> Bool { return self == other; }
+    fn ne(ref self, other: ref Self) -> Bool { return self != other; }
+}
+
+impl Printable : Bool {
+    fn fmt(ref self, f: mutref Formatter) -> Result {
+        return Ok(());
+    }
+}

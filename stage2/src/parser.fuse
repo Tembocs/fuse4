@@ -2,7 +2,7 @@
 /// Mirrors stage1 compiler/parse/ package.
 
 import core.string.String;
-import core.collections.List;
+import core.list.List;
 
 /// Parser produces an AST from a token stream.
 pub struct Parser {

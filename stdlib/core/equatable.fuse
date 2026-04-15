@@ -1,0 +1,6 @@
+/// Equatable enables value equality comparison.
+
+pub trait Equatable {
+    fn eq(ref self, other: ref Self) -> Bool;
+    fn ne(ref self, other: ref Self) -> Bool;
+}

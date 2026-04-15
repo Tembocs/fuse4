@@ -2,7 +2,7 @@
 /// Mirrors stage1 compiler/codegen/ package.
 
 import core.string.String;
-import core.collections.List;
+import core.list.List;
 
 /// Emitter generates C11 source from MIR functions.
 pub struct Emitter {

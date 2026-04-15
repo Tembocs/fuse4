@@ -1,0 +1,40 @@
+/// Map is a hash map from keys to values.
+
+pub struct Map[K, V] {
+    len: USize,
+}
+
+impl[K, V] Map[K, V] {
+    /// Create an empty map.
+    pub fn new() -> Map[K, V] {
+        return Map { len: 0usize };
+    }
+
+    /// Return the number of entries.
+    pub fn len(ref self) -> USize {
+        return self.len;
+    }
+
+    /// Return true if the map is empty.
+    pub fn is_empty(ref self) -> Bool {
+        return self.len == 0usize;
+    }
+
+    /// Insert a key-value pair. Returns the old value if the key existed.
+    /// Bootstrap: stub implementation.
+    pub fn insert(mutref self, key: K, value: V) -> Option[V] {
+        return None;
+    }
+
+    /// Look up a value by key.
+    /// Bootstrap: stub implementation.
+    pub fn get(ref self, key: ref K) -> Option[V] {
+        return None;
+    }
+
+    /// Remove a key and return its value.
+    /// Bootstrap: stub implementation.
+    pub fn remove(mutref self, key: ref K) -> Option[V] {
+        return None;
+    }
+}

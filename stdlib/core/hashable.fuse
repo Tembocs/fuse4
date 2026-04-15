@@ -1,0 +1,6 @@
+/// Hashable enables use as a hash map key.
+/// Requires Equatable as a supertrait.
+
+pub trait Hashable : Equatable {
+    fn hash(ref self) -> U64;
+}

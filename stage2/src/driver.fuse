@@ -4,7 +4,7 @@
 /// Pipeline: parse → resolve → check → lower → codegen → compile → link
 
 import core.string.String;
-import core.collections.Map;
+import core.map.Map;
 import core.result.Result;
 import full.io;
 

@@ -1,0 +1,6 @@
+/// Debuggable enables debug-oriented string formatting.
+/// Equivalent to Debug in other languages.
+
+pub trait Debuggable {
+    fn debug_fmt(ref self, f: mutref Formatter) -> Result;
+}

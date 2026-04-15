@@ -3,7 +3,7 @@
 /// HIR is distinct from AST (syntax) and MIR (low-level).
 
 import core.string.String;
-import core.collections.List;
+import core.list.List;
 
 /// OwnershipKind classifies ownership context.
 pub enum OwnershipKind {

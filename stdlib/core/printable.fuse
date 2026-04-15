@@ -1,0 +1,6 @@
+/// Printable enables human-readable string formatting.
+/// Equivalent to Display in other languages.
+
+pub trait Printable {
+    fn fmt(ref self, f: mutref Formatter) -> Result;
+}

@@ -2,7 +2,7 @@
 /// Mirrors stage1 compiler/lex/lexer.go.
 
 import core.string.String;
-import core.collections.List;
+import core.list.List;
 import core.option.Option;
 
 /// Lexer tokenizes Fuse source code.

@@ -39,6 +39,14 @@ type Checker struct {
 	// traitSupers maps trait name to supertrait names.
 	traitSupers map[string][]string
 
+	// EnumVariants maps enum name to variant definitions (ordered by tag).
+	// Used by the bridge and codegen for variant construction and struct emission.
+	EnumVariants map[string][]VariantDef
+
+	// EnumTypeVariants maps concrete enum TypeId to variant defs (with resolved types).
+	// Populated when concrete enum types are created (e.g. Option[I32]).
+	EnumTypeVariants map[typetable.TypeId][]VariantDef
+
 	// current context during body checking
 	currentModule *resolve.Module
 	currentReturn typetable.TypeId
@@ -56,17 +64,26 @@ type methodSig struct {
 	ReturnType typetable.TypeId
 }
 
+// VariantDef describes an enum variant for codegen and the bridge.
+type VariantDef struct {
+	Name         string
+	Tag          int
+	PayloadTypes []typetable.TypeId // empty for unit variants
+}
+
 // NewChecker creates a checker for the given module graph and type table.
 func NewChecker(types *typetable.TypeTable, graph *resolve.ModuleGraph) *Checker {
 	return &Checker{
-		Types:        types,
-		Graph:        graph,
-		ExprTypes:    make(map[ast.Expr]typetable.TypeId),
-		funcTypes:    make(map[string]typetable.TypeId),
-		structFields: make(map[typetable.TypeId][]fieldInfo),
-		traitMethods: make(map[string][]methodSig),
-		traitImpls:   make(map[string]bool),
-		traitSupers:  make(map[string][]string),
+		Types:            types,
+		Graph:            graph,
+		ExprTypes:        make(map[ast.Expr]typetable.TypeId),
+		funcTypes:        make(map[string]typetable.TypeId),
+		structFields:     make(map[typetable.TypeId][]fieldInfo),
+		traitMethods:     make(map[string][]methodSig),
+		traitImpls:       make(map[string]bool),
+		traitSupers:      make(map[string][]string),
+		EnumVariants:     make(map[string][]VariantDef),
+		EnumTypeVariants: make(map[typetable.TypeId][]VariantDef),
 	}
 }
 
@@ -134,9 +151,48 @@ func (c *Checker) registerStruct(mod *resolve.Module, s *ast.StructDecl) {
 	c.structFields[sty] = fields
 }
 
-func (c *Checker) registerEnum(_ *resolve.Module, e *ast.EnumDecl) {
-	// Enum variants are already hoisted by the resolver.
-	// Type registration is handled through the type table.
+func (c *Checker) registerEnum(mod *resolve.Module, e *ast.EnumDecl) {
+	modStr := mod.Path.String()
+
+	// Build a map of generic param names → GenericParam TypeIds.
+	gpMap := map[string]typetable.TypeId{}
+	for _, gp := range e.GenericParams {
+		gpMap[gp.Name] = c.Types.InternGenericParam(modStr, gp.Name)
+	}
+
+	// Register variant definitions with tag numbers and payload types.
+	var variants []VariantDef
+	for i, v := range e.Variants {
+		var payloads []typetable.TypeId
+		for _, pt := range v.Types {
+			// Check if the type is a generic param name.
+			name := typeExprName(pt)
+			if gpTy, ok := gpMap[name]; ok {
+				payloads = append(payloads, gpTy)
+			} else {
+				payloads = append(payloads, c.resolveTypeExpr(pt))
+			}
+		}
+		variants = append(variants, VariantDef{
+			Name:         v.Name,
+			Tag:          i,
+			PayloadTypes: payloads,
+		})
+	}
+	c.EnumVariants[e.Name] = variants
+
+	// For non-generic enums, register the concrete type variants and fields.
+	if len(e.GenericParams) == 0 {
+		ety := c.Types.InternEnum(modStr, e.Name, nil)
+		c.EnumTypeVariants[ety] = variants
+		var maxPayloads []typetable.TypeId
+		for _, v := range variants {
+			if len(v.PayloadTypes) > len(maxPayloads) {
+				maxPayloads = v.PayloadTypes
+			}
+		}
+		c.Types.SetEnumFields(ety, maxPayloads)
+	}
 }
 
 func (c *Checker) registerTrait(_ *resolve.Module, t *ast.TraitDecl) {
@@ -264,6 +320,42 @@ func (c *Checker) FieldType(structTy typetable.TypeId, fieldName string) typetab
 		}
 	}
 	return typetable.InvalidTypeId
+}
+
+// VariantTag returns the tag number for an enum variant, or -1 if not found.
+// Uses the module graph's deterministic Order to search.
+func (c *Checker) VariantTag(variantName string) int {
+	for _, key := range c.Graph.Order {
+		mod := c.Graph.Modules[key]
+		sym := mod.Symbols.Lookup(variantName)
+		if sym != nil && sym.Kind == resolve.SymEnumVariant {
+			if variants, ok := c.EnumVariants[sym.Parent]; ok {
+				for _, v := range variants {
+					if v.Name == variantName {
+						return v.Tag
+					}
+				}
+			}
+		}
+	}
+	return -1
+}
+
+// IsVariantConstructor returns true if the given name is an enum variant.
+func (c *Checker) IsVariantConstructor(name string) bool {
+	for _, key := range c.Graph.Order {
+		mod := c.Graph.Modules[key]
+		sym := mod.Symbols.Lookup(name)
+		if sym != nil && sym.Kind == resolve.SymEnumVariant {
+			return true
+		}
+	}
+	return false
+}
+
+// GetEnumTypeVariants returns variant defs for a concrete enum TypeId.
+func (c *Checker) GetEnumTypeVariants(ty typetable.TypeId) []VariantDef {
+	return c.EnumTypeVariants[ty]
 }
 
 // FuncReturnType returns the return type of a named function.

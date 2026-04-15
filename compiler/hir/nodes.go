@@ -277,6 +277,16 @@ type FieldInitHIR struct {
 	Value Expr
 }
 
+// EnumInitExpr constructs an enum variant value.
+type EnumInitExpr struct {
+	nodeBase
+	VariantName string
+	Tag         int
+	Args        []Expr // payload values (empty for unit variants)
+}
+
+func (n *EnumInitExpr) exprNode() {}
+
 type ClosureExpr struct {
 	nodeBase
 	Params     []Param

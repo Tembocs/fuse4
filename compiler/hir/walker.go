@@ -131,6 +131,10 @@ func walkExpr(e Expr, afterPass string, out *[]InvariantViolation) {
 		}
 	case *ClosureExpr:
 		walkExpr(n.Body, afterPass, out)
+	case *EnumInitExpr:
+		for _, a := range n.Args {
+			walkExpr(a, afterPass, out)
+		}
 	case *LiteralExpr, *IdentExpr:
 		// leaf nodes — no children to walk
 	}

@@ -118,6 +118,8 @@ func (l *Lowerer) lowerExpr(e hir.Expr) mir.LocalId {
 		return l.lowerTuple(n)
 	case *hir.StructLitExpr:
 		return l.lowerStructLit(n)
+	case *hir.EnumInitExpr:
+		return l.lowerEnumInit(n)
 	case *hir.ClosureExpr:
 		return l.lowerClosure(n)
 	default:
@@ -552,6 +554,19 @@ func (l *Lowerer) lowerTuple(n *hir.TupleExpr) mir.LocalId {
 	}
 	dest := l.b.NewTemp(n.Meta().Type)
 	l.b.EmitTuple(dest, elems, n.Meta().Type)
+	return dest
+}
+
+func (l *Lowerer) lowerEnumInit(n *hir.EnumInitExpr) mir.LocalId {
+	// Emit tag as first field, then payload args.
+	tagLocal := l.b.NewTemp(l.Types.I32)
+	l.b.EmitConst(tagLocal, l.Types.I32, fmt.Sprintf("%d", n.Tag))
+	args := []mir.LocalId{tagLocal}
+	for _, a := range n.Args {
+		args = append(args, l.lowerExpr(a))
+	}
+	dest := l.b.NewTemp(n.Meta().Type)
+	l.b.EmitEnumInit(dest, n.VariantName, args, n.Meta().Type)
 	return dest
 }
 

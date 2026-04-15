@@ -16,6 +16,7 @@ import (
 	"github.com/Tembocs/fuse4/compiler/liveness"
 	"github.com/Tembocs/fuse4/compiler/lower"
 	"github.com/Tembocs/fuse4/compiler/mir"
+	"github.com/Tembocs/fuse4/compiler/monomorph"
 	"github.com/Tembocs/fuse4/compiler/parse"
 	"github.com/Tembocs/fuse4/compiler/resolve"
 	"github.com/Tembocs/fuse4/compiler/typetable"
@@ -62,6 +63,10 @@ func Build(opts BuildOptions) *BuildResult {
 		return result
 	}
 
+	// Phase 2.5: Monomorphize — specialize generic functions at the AST level.
+	// This runs before checking so the checker only sees concrete functions.
+	monomorph.SpecializeModules(graph)
+
 	// Phase 3: Type check.
 	tt := typetable.New()
 	checker := check.NewChecker(tt, graph)
@@ -82,6 +87,11 @@ func Build(opts BuildOptions) *BuildResult {
 			switch it := item.(type) {
 			case *ast.FnDecl:
 				if it.Body == nil {
+					continue
+				}
+				// Skip generic function originals — only their specialized
+				// copies (produced by monomorph.SpecializeModules) are compiled.
+				if monomorph.IsGenericFn(it) {
 					continue
 				}
 				hirFn := buildHIRFunction(hirBuilder, tt, checker, mod.Path.String(), it)

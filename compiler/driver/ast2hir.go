@@ -59,12 +59,19 @@ func typeExprString(te ast.TypeExpr) string {
 // lowerFunction translates an AST FnDecl into a complete HIR Function.
 func (a *ast2hir) lowerFunction(fn *ast.FnDecl) *hir.Function {
 	var params []hir.Param
-	for _, p := range fn.Params {
+	qualName := a.modPath + "." + fn.Name
+	for i, p := range fn.Params {
 		pty := a.tt.Unknown
 		if a.checker != nil {
-			pty = a.checker.Types.LookupPrimitive(typeExprString(p.Type))
-			if pty == typetable.InvalidTypeId {
-				pty = a.tt.Unknown
+			// Prefer the checker's registered param types (handles all types correctly).
+			paramTypes := a.checker.FuncParamTypes(qualName)
+			if i < len(paramTypes) && paramTypes[i] != typetable.InvalidTypeId {
+				pty = paramTypes[i]
+			} else {
+				pty = a.checker.Types.LookupPrimitive(typeExprString(p.Type))
+				if pty == typetable.InvalidTypeId {
+					pty = a.tt.Unknown
+				}
 			}
 		}
 		params = append(params, hir.Param{
@@ -205,6 +212,16 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 		return a.b.Assign(e.Span, op, target, value)
 
 	case *ast.CallExpr:
+		// Check if this is an enum variant constructor (e.g., Some(42)).
+		if ident, ok := e.Callee.(*ast.IdentExpr); ok && a.checker != nil && a.checker.IsVariantConstructor(ident.Name) {
+			tag := a.checker.VariantTag(ident.Name)
+			var args []hir.Expr
+			for _, arg := range e.Args {
+				args = append(args, a.lowerExpr(arg))
+			}
+			enumTy := a.typeOf(e)
+			return a.b.EnumInit(e.Span, ident.Name, tag, args, enumTy)
+		}
 		callee := a.lowerExpr(e.Callee)
 		var args []hir.Expr
 		for _, arg := range e.Args {
@@ -428,15 +445,36 @@ func (a *ast2hir) lowerPattern(p ast.Pattern, subjectTy typetable.TypeId) hir.Pa
 	case *ast.WildcardPat:
 		return &hir.WildcardPattern{}
 	case *ast.LitPat:
+		// Check if this "literal" is actually an enum variant name (e.g., None).
+		if a.checker != nil && a.checker.IsVariantConstructor(p.Value) {
+			tag := a.checker.VariantTag(p.Value)
+			if tag >= 0 {
+				return &hir.ConstructorPattern{Name: p.Value, Tag: tag, Args: nil}
+			}
+		}
 		return &hir.LiteralPattern{Value: p.Value, Type: subjectTy}
 	case *ast.BindPat:
+		// Check if this "binding" is actually an enum variant name (e.g., None).
+		if a.checker != nil && a.checker.IsVariantConstructor(p.Name) {
+			tag := a.checker.VariantTag(p.Name)
+			if tag >= 0 {
+				return &hir.ConstructorPattern{Name: p.Name, Tag: tag, Args: nil}
+			}
+		}
 		return &hir.BindPattern{Name: p.Name, Type: subjectTy}
 	case *ast.ConstructorPat:
 		var args []hir.Pattern
 		for _, arg := range p.Args {
 			args = append(args, a.lowerPattern(arg, a.tt.Unknown))
 		}
-		return &hir.ConstructorPattern{Name: p.Name, Args: args}
+		tag := 0
+		if a.checker != nil {
+			t := a.checker.VariantTag(p.Name)
+			if t >= 0 {
+				tag = t
+			}
+		}
+		return &hir.ConstructorPattern{Name: p.Name, Tag: tag, Args: args}
 	default:
 		return &hir.WildcardPattern{}
 	}

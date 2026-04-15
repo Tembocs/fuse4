@@ -91,8 +91,14 @@ func MangleType(tt *typetable.TypeTable, id typetable.TypeId) string {
 	case typetable.KindTuple:
 		return MangleTupleName(tt, e.Fields)
 	case typetable.KindStruct:
+		if len(e.TypeArgs) > 0 {
+			return MangleName(e.Module, e.Name) + mangleTypeArgs(tt, e.TypeArgs)
+		}
 		return MangleName(e.Module, e.Name)
 	case typetable.KindEnum:
+		if len(e.TypeArgs) > 0 {
+			return MangleName(e.Module, e.Name) + mangleTypeArgs(tt, e.TypeArgs)
+		}
 		return MangleName(e.Module, e.Name)
 	case typetable.KindChannel:
 		return "FuseChan_" + SanitizeIdent(MangleType(tt, e.Elem))
@@ -139,6 +145,18 @@ func intCType(name string, bits int, signed bool) string {
 		}
 		return "uintptr_t"
 	}
+}
+
+// mangleTypeArgs appends type argument names to a mangled identifier.
+func mangleTypeArgs(tt *typetable.TypeTable, args []typetable.TypeId) string {
+	s := "__"
+	for i, a := range args {
+		if i > 0 {
+			s += "_"
+		}
+		s += SanitizeIdent(MangleType(tt, a))
+	}
+	return s
 }
 
 // MangleTupleName generates a stable name for a tuple type.

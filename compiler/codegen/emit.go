@@ -90,8 +90,22 @@ func (e *Emitter) emitTypeDefIfNeeded(id typetable.TypeId) {
 		e.writeln("")
 	case typetable.KindEnum:
 		e.emitted[id] = true
+		// Emit payload field types first.
+		for _, pt := range te.Fields {
+			e.emitTypeDefIfNeeded(pt)
+		}
 		name := MangleType(e.Types, id)
-		e.writef("typedef struct %s %s;", name, name)
+		if len(te.Fields) > 0 {
+			// Enum with payload fields: struct { int _tag; type _f0; ... }
+			e.writef("typedef struct %s { int _tag;", name)
+			for i, f := range te.Fields {
+				e.writef(" %s _f%d;", MangleType(e.Types, f), i)
+			}
+			e.writef(" } %s;", name)
+		} else {
+			// Enum without registered fields: use a generic tag-only struct.
+			e.writef("typedef struct %s { int _tag; } %s;", name, name)
+		}
 		e.writeln("")
 	case typetable.KindTuple:
 		// Emit element types first.

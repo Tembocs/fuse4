@@ -259,6 +259,14 @@ func (tt *TypeTable) InternEnum(module, name string, typeArgs []TypeId) TypeId {
 	return tt.insert(TypeEntry{Kind: KindEnum, Module: module, Name: name, TypeArgs: typeArgs})
 }
 
+// SetEnumFields sets the payload field types on an existing enum type entry.
+// This is called after variant analysis to provide field info for codegen.
+func (tt *TypeTable) SetEnumFields(id TypeId, fields []TypeId) {
+	if int(id) < len(tt.entries) {
+		tt.entries[id].Fields = fields
+	}
+}
+
 // InternGenericParam interns a generic type parameter.
 func (tt *TypeTable) InternGenericParam(module, name string) TypeId {
 	return tt.insert(TypeEntry{Kind: KindGenericParam, Module: module, Name: name})

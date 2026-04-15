@@ -2,6 +2,7 @@ package check
 
 import (
 	"github.com/Tembocs/fuse4/compiler/ast"
+	"github.com/Tembocs/fuse4/compiler/resolve"
 	"github.com/Tembocs/fuse4/compiler/typetable"
 )
 
@@ -58,9 +59,9 @@ func (c *Checker) resolvePathType(pt *ast.PathType) typetable.TypeId {
 		if sym != nil {
 			modStr := sym.Module.String()
 			switch sym.Kind {
-			case 1: // SymStruct
+			case resolve.SymStruct:
 				return c.Types.InternStruct(modStr, name, typeArgs)
-			case 3: // SymEnum
+			case resolve.SymEnum:
 				return c.Types.InternEnum(modStr, name, typeArgs)
 			}
 		}
@@ -128,6 +129,23 @@ func (c *Checker) isAssignableTo(src, dst typetable.TypeId) bool {
 	if c.Types.IsNumeric(src) && c.Types.IsNumeric(dst) {
 		widened := c.numericWiden(src, dst)
 		return widened != typetable.InvalidTypeId
+	}
+	// Same-name enum/struct with compatible type args (Unknown acts as wildcard).
+	se := c.Types.Get(src)
+	de := c.Types.Get(dst)
+	if se.Kind == de.Kind && se.Name == de.Name && se.Module == de.Module &&
+		(se.Kind == typetable.KindEnum || se.Kind == typetable.KindStruct) {
+		if len(se.TypeArgs) == len(de.TypeArgs) {
+			compatible := true
+			for i := range se.TypeArgs {
+				if se.TypeArgs[i] != de.TypeArgs[i] &&
+					se.TypeArgs[i] != c.Types.Unknown && de.TypeArgs[i] != c.Types.Unknown {
+					compatible = false
+					break
+				}
+			}
+			return compatible
+		}
 	}
 	return false
 }

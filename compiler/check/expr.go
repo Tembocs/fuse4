@@ -234,6 +234,13 @@ func (c *Checker) checkAssign(e *ast.AssignExpr) typetable.TypeId {
 // --- call ---
 
 func (c *Checker) checkCall(e *ast.CallExpr) typetable.TypeId {
+	// Check if this is an enum variant constructor: Some(42), Ok(val), etc.
+	if ident, ok := e.Callee.(*ast.IdentExpr); ok {
+		if enumTy := c.checkVariantConstructor(ident.Name, e); enumTy != typetable.InvalidTypeId {
+			return enumTy
+		}
+	}
+
 	calleeType := c.checkExpr(e.Callee)
 	for _, arg := range e.Args {
 		c.checkExpr(arg)
@@ -241,6 +248,13 @@ func (c *Checker) checkCall(e *ast.CallExpr) typetable.TypeId {
 
 	ce := c.Types.Get(calleeType)
 	if ce.Kind == typetable.KindFunc {
+		// Unify argument types with parameter types: upgrade Unknown type args
+		// to concrete ones when the parameter type is more specific.
+		for i, arg := range e.Args {
+			if i < len(ce.Fields) {
+				c.unifyExprType(arg, ce.Fields[i])
+			}
+		}
 		return ce.ReturnType
 	}
 
@@ -251,6 +265,132 @@ func (c *Checker) checkCall(e *ast.CallExpr) typetable.TypeId {
 	}
 
 	return c.Types.Unknown
+}
+
+// checkVariantConstructor checks if a call is to an enum variant constructor.
+// Returns the concrete enum TypeId if so, or InvalidTypeId if not a variant call.
+func (c *Checker) checkVariantConstructor(name string, e *ast.CallExpr) typetable.TypeId {
+	// Look up the symbol to see if it's an enum variant.
+	var sym *resolve.Symbol
+	if c.localScope != nil {
+		sym = c.localScope.Lookup(name)
+	}
+	if sym == nil && c.currentModule != nil {
+		sym = c.currentModule.Symbols.Lookup(name)
+	}
+	if sym == nil || sym.Kind != resolve.SymEnumVariant {
+		return typetable.InvalidTypeId
+	}
+
+	// Found a variant. Check arg types to infer generic type args.
+	argTypes := make([]typetable.TypeId, len(e.Args))
+	for i, arg := range e.Args {
+		argTypes[i] = c.checkExpr(arg)
+	}
+
+	// Look up the parent enum's variant info.
+	enumName := sym.Parent
+	variants, ok := c.EnumVariants[enumName]
+	if !ok {
+		return typetable.InvalidTypeId
+	}
+
+	// Find the enum declaration to get generic params.
+	var enumDecl *ast.EnumDecl
+	if c.currentModule != nil {
+		for _, item := range c.currentModule.File.Items {
+			if ed, ok := item.(*ast.EnumDecl); ok && ed.Name == enumName {
+				enumDecl = ed
+				break
+			}
+		}
+	}
+	// Also search other modules.
+	if enumDecl == nil {
+		for _, key := range c.Graph.Order {
+			mod := c.Graph.Modules[key]
+			for _, item := range mod.File.Items {
+				if ed, ok := item.(*ast.EnumDecl); ok && ed.Name == enumName {
+					enumDecl = ed
+					break
+				}
+			}
+		}
+	}
+
+	modStr := ""
+	if c.currentModule != nil {
+		modStr = c.currentModule.Path.String()
+	}
+
+	// Determine concrete type args from the constructor arguments.
+	var typeArgs []typetable.TypeId
+	if enumDecl != nil && len(enumDecl.GenericParams) > 0 {
+		// Generic enum: infer type args from constructor arg types.
+		// For each generic param, find the first variant payload that uses it
+		// and match against the concrete arg type.
+		typeArgs = make([]typetable.TypeId, len(enumDecl.GenericParams))
+		for gi, gp := range enumDecl.GenericParams {
+			// Find this variant and match type params to arg types.
+			for _, v := range variants {
+				if v.Name == name {
+					for pi, pt := range v.PayloadTypes {
+						te := c.Types.Get(pt)
+						if te.Kind == typetable.KindGenericParam && te.Name == gp.Name && pi < len(argTypes) {
+							typeArgs[gi] = argTypes[pi]
+						}
+					}
+				}
+			}
+			// Try to infer from the current function's return type context.
+			if typeArgs[gi] == typetable.InvalidTypeId || typeArgs[gi] == c.Types.Unknown {
+				retEntry := c.Types.Get(c.currentReturn)
+				if retEntry.Name == enumName && gi < len(retEntry.TypeArgs) {
+					typeArgs[gi] = retEntry.TypeArgs[gi]
+				}
+			}
+			// Fallback to Unknown if not inferred.
+			if typeArgs[gi] == typetable.InvalidTypeId {
+				typeArgs[gi] = c.Types.Unknown
+			}
+		}
+	}
+
+	// Create the concrete enum type.
+	enumTy := c.Types.InternEnum(modStr, enumName, typeArgs)
+
+	// Register concrete variant info with resolved payload types.
+	if _, exists := c.EnumTypeVariants[enumTy]; !exists {
+		concreteVars := make([]VariantDef, len(variants))
+		// Track the maximum payload types across all variants for the struct fields.
+		var maxPayloads []typetable.TypeId
+		for i, v := range variants {
+			payloads := make([]typetable.TypeId, len(v.PayloadTypes))
+			for j, pt := range v.PayloadTypes {
+				resolved := pt
+				// Substitute generic params with concrete type args.
+				te := c.Types.Get(pt)
+				if te.Kind == typetable.KindGenericParam && enumDecl != nil {
+					for gi, gp := range enumDecl.GenericParams {
+						if te.Name == gp.Name && gi < len(typeArgs) {
+							resolved = typeArgs[gi]
+						}
+					}
+				}
+				payloads[j] = resolved
+			}
+			concreteVars[i] = VariantDef{Name: v.Name, Tag: v.Tag, PayloadTypes: payloads}
+			// Use the widest variant's payloads for the struct fields.
+			if len(payloads) > len(maxPayloads) {
+				maxPayloads = payloads
+			}
+		}
+		c.EnumTypeVariants[enumTy] = concreteVars
+		// Set enum fields on the type table so codegen can emit the struct.
+		c.Types.SetEnumFields(enumTy, maxPayloads)
+	}
+
+	return enumTy
 }
 
 // --- index ---
@@ -502,6 +642,39 @@ func (c *Checker) checkStructLit(e *ast.StructLitExpr) typetable.TypeId {
 		modStr = c.currentModule.Path.String()
 	}
 	return c.Types.InternStruct(modStr, e.Name, nil)
+}
+
+// unifyExprType upgrades an expression's type when the expected type is more
+// specific (i.e., has concrete type args where the expression has Unknown).
+// This handles cases like passing Ok(42) (Result[I32, Unknown]) to a param
+// expecting Result[I32, Bool].
+func (c *Checker) unifyExprType(expr ast.Expr, expected typetable.TypeId) {
+	if c.ExprTypes == nil {
+		return
+	}
+	actual, ok := c.ExprTypes[expr]
+	if !ok || actual == expected {
+		return
+	}
+	ae := c.Types.Get(actual)
+	ee := c.Types.Get(expected)
+	if ae.Kind != ee.Kind || ae.Name != ee.Name || ae.Module != ee.Module {
+		return
+	}
+	if len(ae.TypeArgs) != len(ee.TypeArgs) || len(ae.TypeArgs) == 0 {
+		return
+	}
+	// Check if actual has Unknown type args that expected fills in.
+	needsUpgrade := false
+	for i := range ae.TypeArgs {
+		if ae.TypeArgs[i] == c.Types.Unknown && ee.TypeArgs[i] != c.Types.Unknown {
+			needsUpgrade = true
+			break
+		}
+	}
+	if needsUpgrade {
+		c.ExprTypes[expr] = expected
+	}
 }
 
 // --- closure ---

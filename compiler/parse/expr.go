@@ -209,12 +209,29 @@ func (p *Parser) parseCallExpr(callee ast.Expr) *ast.CallExpr {
 
 func (p *Parser) parseIndexExpr(expr ast.Expr) *ast.IndexExpr {
 	p.advance() // [
-	index := p.parseExpr()
+	first := p.parseExpr()
+	// If there are commas, collect multiple expressions (type argument list).
+	if p.at(lex.Comma) {
+		elems := []ast.Expr{first}
+		for p.at(lex.Comma) {
+			p.advance()
+			elems = append(elems, p.parseExpr())
+		}
+		end := p.expect(lex.RBrack)
+		return &ast.IndexExpr{
+			Span: spanStartEnd(expr.NodeSpan(), end.Span),
+			Expr: expr,
+			Index: &ast.TupleExpr{
+				Span:  spanStartEnd(first.NodeSpan(), elems[len(elems)-1].NodeSpan()),
+				Elems: elems,
+			},
+		}
+	}
 	end := p.expect(lex.RBrack)
 	return &ast.IndexExpr{
 		Span:  spanStartEnd(expr.NodeSpan(), end.Span),
 		Expr:  expr,
-		Index: index,
+		Index: first,
 	}
 }
 

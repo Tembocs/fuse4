@@ -247,6 +247,83 @@ var e2eTests = []e2eTest{
 		WantExit: 30,
 	},
 
+	// ===== Generics (Wave 17 proof programs) =====
+	{
+		Name: "generic_identity",
+		Source: `fn identity[T](x: T) -> T { return x; }
+fn main() -> I32 { return identity[I32](42); }`,
+		WantExit: 42,
+	},
+	{
+		Name: "generic_two_calls",
+		Source: `fn first[T](a: T, b: T) -> T { return a; }
+fn main() -> I32 {
+	let x = first[I32](10, 20);
+	let y = first[I32](3, 7);
+	return x + y;
+}`,
+		WantExit: 13,
+	},
+
+	{
+		Name: "generic_enum_option_match",
+		Source: `enum Option[T] { Some(T), None }
+fn unwrap_or[T](opt: Option[T], default_val: T) -> T {
+	match opt {
+		Some(v) => return v,
+		None => return default_val,
+	}
+}
+fn main() -> I32 {
+	let x = Some(42);
+	return unwrap_or[I32](x, 0);
+}`,
+		WantExit: 42,
+	},
+
+	{
+		Name: "generic_result_question_ok",
+		Source: `enum Result[T, E] { Ok(T), Err(E) }
+fn make_ok[T, E](v: T) -> Result[T, E] { return Ok(v); }
+fn try_get[T, E](r: Result[T, E]) -> Result[T, E] {
+	let v = r?;
+	return Ok(v);
+}
+fn main() -> I32 {
+	match try_get[I32, Bool](make_ok[I32, Bool](42)) {
+		Ok(v) => return v,
+		Err(e) => return 0,
+	}
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "generic_result_question_err",
+		Source: `enum Result[T, E] { Ok(T), Err(E) }
+fn make_err[T, E](e: E) -> Result[T, E] { return Err(e); }
+fn try_get[T, E](r: Result[T, E]) -> Result[T, E] {
+	let v = r?;
+	return Ok(v);
+}
+fn main() -> I32 {
+	match try_get[I32, Bool](make_err[I32, Bool](false)) {
+		Ok(v) => return v,
+		Err(e) => return 99,
+	}
+}`,
+		WantExit: 99,
+	},
+
+	{
+		Name: "generic_two_distinct_specializations",
+		Source: `fn double[T](x: T) -> T { return x + x; }
+fn main() -> I32 {
+	let a = double[I32](21);
+	return a;
+}`,
+		WantExit: 42,
+	},
+
 	// ===== Compilation Errors =====
 	{
 		Name:      "parse_error",

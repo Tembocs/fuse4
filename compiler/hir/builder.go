@@ -142,6 +142,10 @@ func (b *Builder) StructLit(span diagnostics.Span, name string, fields []FieldIn
 	return &StructLitExpr{nodeBase: b.baseTyped(span, ty), Name: name, Fields: fields}
 }
 
+func (b *Builder) EnumInit(span diagnostics.Span, variantName string, tag int, args []Expr, ty typetable.TypeId) *EnumInitExpr {
+	return &EnumInitExpr{nodeBase: b.baseTyped(span, ty), VariantName: variantName, Tag: tag, Args: args}
+}
+
 func (b *Builder) Closure(span diagnostics.Span, params []Param, retType typetable.TypeId, body *Block, ty typetable.TypeId) *ClosureExpr {
 	return &ClosureExpr{nodeBase: b.baseTyped(span, ty), Params: params, ReturnType: retType, Body: body}
 }

@@ -1,5 +1,4 @@
-/// Synchronization module: mutex, condition variable, and shared state.
-/// This module depends on core and the runtime bridge.
+/// Shared state and synchronization primitives.
 
 /// Mutex provides mutual exclusion.
 pub struct Mutex {
@@ -11,7 +10,7 @@ impl Mutex {
     pub fn new() -> Mutex {
         unsafe {
             extern fn fuse_rt_mutex_create() -> Ptr[U8];
-            Mutex { handle: fuse_rt_mutex_create() }
+            return Mutex { handle: fuse_rt_mutex_create() };
         }
     }
 
@@ -51,7 +50,7 @@ impl Cond {
     pub fn new() -> Cond {
         unsafe {
             extern fn fuse_rt_cond_create() -> Ptr[U8];
-            Cond { handle: fuse_rt_cond_create() }
+            return Cond { handle: fuse_rt_cond_create() };
         }
     }
 
@@ -90,19 +89,18 @@ impl Drop : Cond {
 }
 
 /// Shared[T] wraps a value with mutex-based synchronization.
-/// Access requires explicit lock/unlock.
 pub struct Shared[T] {
     value: T,
     mutex: Mutex,
 }
 
-impl Shared {
+impl[T] Shared[T] {
     /// Create a new shared value.
-    pub fn new(value: T) -> Shared {
-        Shared { value: value, mutex: Mutex.new() }
+    pub fn new(value: T) -> Shared[T] {
+        return Shared { value: value, mutex: Mutex.new() };
     }
 
-    /// Lock the shared value. The caller must call unlock() when done.
+    /// Lock the shared value.
     pub fn lock(mutref self) {
         self.mutex.lock();
     }

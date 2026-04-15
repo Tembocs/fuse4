@@ -1,0 +1,31 @@
+/// TOML configuration file parsing.
+/// Bootstrap: stub implementation.
+
+import core.result.Result;
+import core.string.String;
+import core.option.Option;
+
+/// A parsed TOML document.
+pub struct TomlDoc {
+    raw: String,
+}
+
+impl TomlDoc {
+    /// Parse a TOML string.
+    /// Bootstrap: stub — returns an error.
+    pub fn parse(input: ref String) -> Result[TomlDoc, String] {
+        return Err("toml not implemented in bootstrap");
+    }
+
+    /// Get a string value by key.
+    /// Bootstrap: stub — returns None.
+    pub fn get_string(ref self, key: ref String) -> Option[String] {
+        return None;
+    }
+
+    /// Get an integer value by key.
+    /// Bootstrap: stub — returns None.
+    pub fn get_int(ref self, key: ref String) -> Option[I64] {
+        return None;
+    }
+}

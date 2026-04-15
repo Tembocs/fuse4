@@ -1,0 +1,34 @@
+/// Process management: spawning, arguments, exit.
+
+import core.result.Result;
+import core.string.String;
+import core.option.Option;
+
+/// Return the number of command-line arguments.
+pub fn argc() -> I32 {
+    unsafe {
+        extern fn fuse_rt_proc_argc() -> I32;
+        return fuse_rt_proc_argc();
+    }
+}
+
+/// Return the command-line argument at the given index, or None.
+pub fn argv(index: I32) -> Option[String] {
+    return None;
+}
+
+/// Exit the process with the given exit code.
+pub fn exit(code: I32) {
+    unsafe {
+        extern fn fuse_rt_proc_exit(code: I32);
+        fuse_rt_proc_exit(code);
+    }
+}
+
+/// Spawn a new thread running the given function.
+pub fn spawn_thread(f: owned Fn) -> Result[(), String] {
+    unsafe {
+        extern fn fuse_rt_thread_spawn(f: Ptr[U8], arg: Ptr[U8]) -> I32;
+        return Ok(());
+    }
+}

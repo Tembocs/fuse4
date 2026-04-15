@@ -1,0 +1,30 @@
+/// Testing framework.
+
+import core.string.String;
+
+/// Assert that a condition is true. Panics with message if false.
+pub fn assert(condition: Bool, message: ref String) {
+    if condition { return; }
+    unsafe {
+        extern fn fuse_rt_panic(msg: Ptr[U8]);
+        fuse_rt_panic(message.data);
+    }
+}
+
+/// Assert that two I32 values are equal.
+pub fn assert_eq_i32(a: I32, b: I32) {
+    if a == b { return; }
+    unsafe {
+        extern fn fuse_rt_panic(msg: Ptr[U8]);
+        fuse_rt_panic("assertion failed: values not equal");
+    }
+}
+
+/// Assert that two Bool values are equal.
+pub fn assert_eq_bool(a: Bool, b: Bool) {
+    if a == b { return; }
+    unsafe {
+        extern fn fuse_rt_panic(msg: Ptr[U8]);
+        fuse_rt_panic("assertion failed: bools not equal");
+    }
+}

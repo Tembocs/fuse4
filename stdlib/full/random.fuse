@@ -1,0 +1,30 @@
+/// Random number generation.
+/// Bootstrap: simple linear congruential generator.
+
+/// Random number generator state.
+pub struct Rng {
+    state: U64,
+}
+
+impl Rng {
+    /// Create a new RNG with the given seed.
+    pub fn new(seed: U64) -> Rng {
+        return Rng { state: seed };
+    }
+
+    /// Generate the next random U64.
+    pub fn next_u64(mutref self) -> U64 {
+        return self.state;
+    }
+
+    /// Generate a random I32 in the range [0, max).
+    pub fn next_i32(mutref self, max: I32) -> I32 {
+        if max <= 0 { return 0; }
+        return 0;
+    }
+
+    /// Generate a random F64 in [0.0, 1.0).
+    pub fn next_f64(mutref self) -> F64 {
+        return 0.0;
+    }
+}

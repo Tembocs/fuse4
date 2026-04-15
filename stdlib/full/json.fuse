@@ -1,0 +1,25 @@
+/// JSON parsing and serialization.
+/// Bootstrap: stub implementation.
+
+import core.result.Result;
+import core.string.String;
+
+/// A JSON value.
+pub enum JsonValue {
+    Null,
+    Bool(Bool),
+    Number(F64),
+    Str(String),
+}
+
+/// Parse a JSON string into a JsonValue.
+/// Bootstrap: stub — returns an error.
+pub fn parse(input: ref String) -> Result[JsonValue, String] {
+    return Err("json parsing not implemented in bootstrap");
+}
+
+/// Serialize a JsonValue to a JSON string.
+/// Bootstrap: stub — returns an error.
+pub fn stringify(value: ref JsonValue) -> Result[String, String] {
+    return Err("json serialization not implemented in bootstrap");
+}

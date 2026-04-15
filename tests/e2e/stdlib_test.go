@@ -97,12 +97,21 @@ func TestStdlibFullCompiles(t *testing.T) {
 	}
 
 	fullFiles := []string{
-		"stdlib/full/io.fuse",
-		"stdlib/full/os.fuse",
-		"stdlib/full/thread.fuse",
-		"stdlib/full/sync.fuse",
-		"stdlib/full/time.fuse",
 		"stdlib/full/chan.fuse",
+		"stdlib/full/env.fuse",
+		"stdlib/full/http.fuse",
+		"stdlib/full/io.fuse",
+		"stdlib/full/json.fuse",
+		"stdlib/full/net.fuse",
+		"stdlib/full/os.fuse",
+		"stdlib/full/path.fuse",
+		"stdlib/full/process.fuse",
+		"stdlib/full/random.fuse",
+		"stdlib/full/shared.fuse",
+		"stdlib/full/simd.fuse",
+		"stdlib/full/sys.fuse",
+		"stdlib/full/time.fuse",
+		"stdlib/full/timer.fuse",
 	}
 
 	for _, f := range fullFiles {
@@ -169,6 +178,88 @@ func compileStdlibFile(t *testing.T, name string, src []byte) {
 	chk.Check()
 	if len(chk.Errors) > 0 {
 		t.Fatalf("check: %v", chk.Errors[0])
+	}
+}
+
+// TestStdlibExtCompiles verifies that stdlib/ext/ files compile with their
+// core and full dependencies provided.
+func TestStdlibExtCompiles(t *testing.T) {
+	root := findProjectRoot()
+	if root == "" {
+		t.Skip("project root not found")
+	}
+
+	// Load core dependencies.
+	coreDeps := map[string]string{
+		"stdlib/core/option.fuse":    "core.option",
+		"stdlib/core/result.fuse":    "core.result",
+		"stdlib/core/string.fuse":    "core.string",
+		"stdlib/core/traits.fuse":    "core.traits",
+		"stdlib/core/equatable.fuse": "core.equatable",
+	}
+	coreFiles := map[string]*ast.File{}
+	for path, modName := range coreDeps {
+		src, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil {
+			continue
+		}
+		parsed, errs := parse.Parse(filepath.Base(path), src)
+		if len(errs) > 0 {
+			continue
+		}
+		coreFiles[modName] = parsed
+	}
+
+	extFiles := []string{
+		"stdlib/ext/argparse.fuse",
+		"stdlib/ext/crypto.fuse",
+		"stdlib/ext/http_server.fuse",
+		"stdlib/ext/json_schema.fuse",
+		"stdlib/ext/jsonrpc.fuse",
+		"stdlib/ext/log.fuse",
+		"stdlib/ext/regex.fuse",
+		"stdlib/ext/test.fuse",
+		"stdlib/ext/toml.fuse",
+		"stdlib/ext/uri.fuse",
+		"stdlib/ext/yaml.fuse",
+	}
+
+	for _, f := range extFiles {
+		t.Run(filepath.Base(f), func(t *testing.T) {
+			src, err := os.ReadFile(filepath.Join(root, f))
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			modName := filepath.Base(f)
+			modName = modName[:len(modName)-5]
+
+			parsed, errs := parse.Parse(filepath.Base(f), src)
+			if len(errs) > 0 {
+				t.Fatalf("parse: %v", errs[0])
+			}
+
+			files := map[string]*ast.File{}
+			for k, v := range coreFiles {
+				files[k] = v
+			}
+			files["ext."+modName] = parsed
+
+			graph := resolve.BuildModuleGraph(files)
+			resolver := resolve.NewResolver(graph)
+			resolver.Resolve()
+			if len(resolver.Errors) > 0 {
+				t.Fatalf("resolve: %v", resolver.Errors[0])
+			}
+
+			monomorph.SpecializeModules(graph)
+
+			tt := typetable.New()
+			chk := check.NewChecker(tt, graph)
+			chk.Check()
+			if len(chk.Errors) > 0 {
+				t.Fatalf("check: %v", chk.Errors[0])
+			}
+		})
 	}
 }
 

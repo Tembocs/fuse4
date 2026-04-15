@@ -1,0 +1,36 @@
+/// Structured logging.
+
+import core.string.String;
+
+/// Log level.
+pub enum Level {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+/// Log a message at the given level.
+/// Bootstrap: writes to stderr via the runtime.
+pub fn log(level: Level, message: ref String) {
+    unsafe {
+        extern fn fuse_rt_io_write_stderr(buf: Ptr[U8], len: USize) -> I64;
+        fuse_rt_io_write_stderr(message.data, message.len);
+    }
+}
+
+/// Log at info level.
+pub fn info(message: ref String) {
+    log(Info, message);
+}
+
+/// Log at error level.
+pub fn error(message: ref String) {
+    log(Error, message);
+}
+
+/// Log at debug level.
+pub fn debug(message: ref String) {
+    log(Debug, message);
+}

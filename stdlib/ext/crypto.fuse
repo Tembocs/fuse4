@@ -1,0 +1,16 @@
+/// Cryptographic primitives.
+/// Bootstrap: stub implementation.
+
+import core.string.String;
+
+/// Compute SHA-256 hash of a byte buffer.
+/// Bootstrap: stub — returns empty string.
+pub fn sha256(data: Ptr[U8], len: USize) -> String {
+    return String.new();
+}
+
+/// Compute SHA-512 hash of a byte buffer.
+/// Bootstrap: stub — returns empty string.
+pub fn sha512(data: Ptr[U8], len: USize) -> String {
+    return String.new();
+}

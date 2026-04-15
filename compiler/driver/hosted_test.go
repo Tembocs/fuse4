@@ -13,12 +13,21 @@ func TestHostedStdlibDiscovery(t *testing.T) {
 	}
 
 	expected := []string{
-		"full.io",
-		"full.os",
-		"full.time",
-		"full.thread",
-		"full.sync",
 		"full.chan",
+		"full.env",
+		"full.http",
+		"full.io",
+		"full.json",
+		"full.net",
+		"full.os",
+		"full.path",
+		"full.process",
+		"full.random",
+		"full.shared",
+		"full.simd",
+		"full.sys",
+		"full.time",
+		"full.timer",
 	}
 	for _, mod := range expected {
 		if _, ok := sources[mod]; !ok {

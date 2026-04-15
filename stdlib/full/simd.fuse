@@ -1,0 +1,42 @@
+/// SIMD (Single Instruction, Multiple Data) operations.
+/// Bootstrap: stub implementation — requires native backend for real SIMD.
+
+/// A 128-bit SIMD vector of 4 x F32 values.
+pub struct F32x4 {
+    v0: F32,
+    v1: F32,
+    v2: F32,
+    v3: F32,
+}
+
+impl F32x4 {
+    /// Create a vector with all lanes set to the same value.
+    pub fn splat(value: F32) -> F32x4 {
+        return F32x4 { v0: value, v1: value, v2: value, v3: value };
+    }
+
+    /// Create a vector from four values.
+    pub fn new(a: F32, b: F32, c: F32, d: F32) -> F32x4 {
+        return F32x4 { v0: a, v1: b, v2: c, v3: d };
+    }
+
+    /// Add two vectors lane-wise.
+    pub fn add(ref self, other: ref F32x4) -> F32x4 {
+        return F32x4 {
+            v0: self.v0 + other.v0,
+            v1: self.v1 + other.v1,
+            v2: self.v2 + other.v2,
+            v3: self.v3 + other.v3,
+        };
+    }
+
+    /// Multiply two vectors lane-wise.
+    pub fn mul(ref self, other: ref F32x4) -> F32x4 {
+        return F32x4 {
+            v0: self.v0 * other.v0,
+            v1: self.v1 * other.v1,
+            v2: self.v2 * other.v2,
+            v3: self.v3 * other.v3,
+        };
+    }
+}

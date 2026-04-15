@@ -1,0 +1,25 @@
+/// YAML parsing and serialization.
+/// Bootstrap: stub implementation.
+
+import core.result.Result;
+import core.string.String;
+import core.option.Option;
+
+/// A parsed YAML document.
+pub struct YamlDoc {
+    raw: String,
+}
+
+impl YamlDoc {
+    /// Parse a YAML string.
+    /// Bootstrap: stub — returns an error.
+    pub fn parse(input: ref String) -> Result[YamlDoc, String] {
+        return Err("yaml not implemented in bootstrap");
+    }
+
+    /// Get a string value by key path.
+    /// Bootstrap: stub — returns None.
+    pub fn get_string(ref self, key: ref String) -> Option[String] {
+        return None;
+    }
+}

@@ -1,0 +1,31 @@
+/// Regular expression matching.
+/// Bootstrap: stub implementation.
+
+import core.result.Result;
+import core.string.String;
+import core.option.Option;
+
+/// A compiled regular expression.
+pub struct Regex {
+    pattern: String,
+}
+
+impl Regex {
+    /// Compile a regular expression pattern.
+    /// Bootstrap: stub — returns an error.
+    pub fn compile(pattern: ref String) -> Result[Regex, String] {
+        return Err("regex not implemented in bootstrap");
+    }
+
+    /// Test if the pattern matches the input.
+    /// Bootstrap: stub — returns false.
+    pub fn is_match(ref self, input: ref String) -> Bool {
+        return false;
+    }
+
+    /// Find the first match in the input.
+    /// Bootstrap: stub — returns None.
+    pub fn find(ref self, input: ref String) -> Option[String] {
+        return None;
+    }
+}

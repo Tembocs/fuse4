@@ -1,0 +1,53 @@
+/// Command-line argument parsing.
+/// Bootstrap: stub implementation.
+
+import core.string.String;
+import core.option.Option;
+import core.result.Result;
+
+/// An argument parser.
+pub struct ArgParser {
+    name: String,
+}
+
+impl ArgParser {
+    /// Create a new argument parser with the program name.
+    pub fn new(name: String) -> ArgParser {
+        return ArgParser { name: name };
+    }
+
+    /// Add a required positional argument.
+    /// Bootstrap: stub.
+    pub fn add_arg(mutref self, name: String) {
+    }
+
+    /// Add an optional flag (e.g., --verbose).
+    /// Bootstrap: stub.
+    pub fn add_flag(mutref self, name: String) {
+    }
+
+    /// Parse command-line arguments.
+    /// Bootstrap: stub — returns an error.
+    pub fn parse(ref self) -> Result[Args, String] {
+        return Err("argparse not implemented in bootstrap");
+    }
+}
+
+/// Parsed arguments.
+pub struct Args {
+    count: I32,
+}
+
+impl Args {
+    /// Get a positional argument by index.
+    /// Bootstrap: stub — returns None.
+    pub fn get(ref self, name: ref String) -> Option[String] {
+        return None;
+    }
+
+    /// Check if a flag was present.
+    /// Bootstrap: stub — returns false.
+    pub fn has_flag(ref self, name: ref String) -> Bool {
+        return false;
+    }
+}

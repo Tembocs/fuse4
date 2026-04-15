@@ -1,0 +1,24 @@
+/// JSON Schema validation.
+/// Bootstrap: stub implementation.
+
+import core.result.Result;
+import core.string.String;
+
+/// A compiled JSON schema.
+pub struct Schema {
+    raw: String,
+}
+
+impl Schema {
+    /// Parse and compile a JSON schema.
+    /// Bootstrap: stub — returns an error.
+    pub fn compile(input: ref String) -> Result[Schema, String] {
+        return Err("json_schema not implemented in bootstrap");
+    }
+
+    /// Validate a JSON string against this schema.
+    /// Bootstrap: stub — returns an error.
+    pub fn validate(ref self, input: ref String) -> Result[(), String] {
+        return Err("json_schema not implemented in bootstrap");
+    }
+}

@@ -1,0 +1,45 @@
+/// Path manipulation utilities.
+
+import core.string.String;
+import core.option.Option;
+
+/// A filesystem path.
+pub struct Path {
+    inner: String,
+}
+
+impl Path {
+    /// Create a path from a string.
+    pub fn from(s: String) -> Path {
+        return Path { inner: s };
+    }
+
+    /// Return the path as a string.
+    pub fn to_string(ref self) -> String {
+        return self.inner;
+    }
+
+    /// Return the file extension, or None.
+    /// Bootstrap: stub — returns None.
+    pub fn extension(ref self) -> Option[String] {
+        return None;
+    }
+
+    /// Return the file name component, or None.
+    /// Bootstrap: stub — returns None.
+    pub fn file_name(ref self) -> Option[String] {
+        return None;
+    }
+
+    /// Return the parent directory, or None.
+    /// Bootstrap: stub — returns None.
+    pub fn parent(ref self) -> Option[Path] {
+        return None;
+    }
+
+    /// Join this path with another component.
+    /// Bootstrap: stub — returns self.
+    pub fn join(ref self, other: ref String) -> Path {
+        return Path { inner: self.inner };
+    }
+}

@@ -1,0 +1,36 @@
+/// URI parsing and construction.
+/// Bootstrap: stub implementation.
+
+import core.string.String;
+import core.option.Option;
+import core.result.Result;
+
+/// A parsed URI.
+pub struct Uri {
+    raw: String,
+}
+
+impl Uri {
+    /// Parse a URI string.
+    /// Bootstrap: stub — returns an error.
+    pub fn parse(input: ref String) -> Result[Uri, String] {
+        return Err("uri parsing not implemented in bootstrap");
+    }
+
+    /// Return the scheme (e.g., "https").
+    /// Bootstrap: stub — returns None.
+    pub fn scheme(ref self) -> Option[String] {
+        return None;
+    }
+
+    /// Return the host.
+    /// Bootstrap: stub — returns None.
+    pub fn host(ref self) -> Option[String] {
+        return None;
+    }
+
+    /// Return the path.
+    pub fn path(ref self) -> String {
+        return self.raw;
+    }
+}

@@ -1,0 +1,38 @@
+/// Timer and scheduling utilities.
+
+/// A simple stopwatch for measuring elapsed time.
+pub struct Stopwatch {
+    start_ns: I64,
+    running: Bool,
+}
+
+impl Stopwatch {
+    /// Create and start a new stopwatch.
+    pub fn start() -> Stopwatch {
+        unsafe {
+            extern fn fuse_rt_time_now_ns() -> I64;
+            return Stopwatch { start_ns: fuse_rt_time_now_ns(), running: true };
+        }
+    }
+
+    /// Return elapsed time in nanoseconds.
+    pub fn elapsed_ns(ref self) -> I64 {
+        unsafe {
+            extern fn fuse_rt_time_now_ns() -> I64;
+            return fuse_rt_time_now_ns() - self.start_ns;
+        }
+    }
+
+    /// Return elapsed time in milliseconds.
+    pub fn elapsed_ms(ref self) -> I64 {
+        return self.elapsed_ns() / 1000000i64;
+    }
+
+    /// Reset the stopwatch.
+    pub fn reset(mutref self) {
+        unsafe {
+            extern fn fuse_rt_time_now_ns() -> I64;
+            self.start_ns = fuse_rt_time_now_ns();
+        }
+    }
+}

@@ -1,0 +1,48 @@
+/// HTTP server framework.
+/// Bootstrap: stub implementation.
+
+import core.result.Result;
+import core.string.String;
+
+/// An HTTP request received by the server.
+pub struct Request {
+    method: String,
+    path: String,
+    body: String,
+}
+
+/// An HTTP response to send back.
+pub struct ResponseBuilder {
+    status: I32,
+    body: String,
+}
+
+impl ResponseBuilder {
+    /// Create a response with the given status code.
+    pub fn new(status: I32) -> ResponseBuilder {
+        return ResponseBuilder { status: status, body: String.new() };
+    }
+
+    /// Set the response body.
+    pub fn body(mutref self, b: String) {
+        self.body = b;
+    }
+}
+
+/// An HTTP server.
+pub struct Server {
+    addr: String,
+}
+
+impl Server {
+    /// Create a new server bound to the given address.
+    pub fn new(addr: String) -> Server {
+        return Server { addr: addr };
+    }
+
+    /// Start listening for connections.
+    /// Bootstrap: stub — returns an error.
+    pub fn listen(mutref self) -> Result[(), String] {
+        return Err("http_server not implemented in bootstrap");
+    }
+}

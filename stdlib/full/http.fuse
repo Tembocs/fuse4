@@ -1,0 +1,47 @@
+/// HTTP client for making HTTP requests.
+/// Bootstrap: stub implementation — full implementation requires
+/// network I/O and TLS support.
+
+import core.result.Result;
+import core.string.String;
+
+/// HTTP method.
+pub enum Method {
+    Get,
+    Post,
+    Put,
+    Delete,
+    Patch,
+    Head,
+    Options,
+}
+
+/// HTTP response.
+pub struct Response {
+    status: I32,
+    body: String,
+}
+
+impl Response {
+    /// Return the HTTP status code.
+    pub fn status(ref self) -> I32 {
+        return self.status;
+    }
+
+    /// Return the response body as a string.
+    pub fn body(ref self) -> String {
+        return self.body;
+    }
+}
+
+/// Perform an HTTP GET request.
+/// Bootstrap: stub — returns an error.
+pub fn get(url: ref String) -> Result[Response, String] {
+    return Err("http not implemented in bootstrap");
+}
+
+/// Perform an HTTP POST request with a body.
+/// Bootstrap: stub — returns an error.
+pub fn post(url: ref String, body: ref String) -> Result[Response, String] {
+    return Err("http not implemented in bootstrap");
+}

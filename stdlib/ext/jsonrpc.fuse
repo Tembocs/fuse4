@@ -1,0 +1,23 @@
+/// JSON-RPC 2.0 client and server.
+/// Bootstrap: stub implementation.
+
+import core.result.Result;
+import core.string.String;
+
+/// A JSON-RPC request.
+pub struct RpcRequest {
+    method: String,
+    id: I32,
+}
+
+/// A JSON-RPC response.
+pub struct RpcResponse {
+    id: I32,
+    result: String,
+}
+
+/// Send a JSON-RPC request.
+/// Bootstrap: stub — returns an error.
+pub fn call(url: ref String, method: ref String) -> Result[RpcResponse, String] {
+    return Err("jsonrpc not implemented in bootstrap");
+}

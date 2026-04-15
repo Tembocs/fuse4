@@ -526,6 +526,79 @@ fn main() -> I32 {
 		WantExit: 5,
 	},
 
+	// ===== Wave 18 Phase 10: Additional proof programs =====
+	{
+		Name: "w18_comparison_if",
+		Source: `fn main() -> I32 {
+	let a = 10;
+	let b = 20;
+	if a < b { return 42; }
+	return 0;
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_enum_multi_variant",
+		Source: `enum Shape { Circle(I32), Rect(I32, I32) }
+fn area(s: Shape) -> I32 {
+	match s {
+		Circle(r) => return r * r,
+		Rect(w, h) => return w * h,
+	}
+}
+fn main() -> I32 {
+	let c = Circle(3);
+	let r = Rect(6, 7);
+	return area(r);
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_nested_struct_access",
+		Source: `struct Inner { val: I32 }
+struct Outer { inner: Inner, extra: I32 }
+fn main() -> I32 {
+	let i = Inner { val: 40 };
+	let o = Outer { inner: i, extra: 2 };
+	return o.inner.val + o.extra;
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_string_println_escape",
+		Source: `fn main() -> I32 {
+	print("hello\tworld");
+	return 0;
+}`,
+		WantExit:   0,
+		WantStdout: "hello\tworld",
+	},
+	{
+		Name: "w18_multi_return_paths",
+		Source: `fn classify(x: I32) -> I32 {
+	if x > 100 { return 3; }
+	if x > 10 { return 2; }
+	if x > 0 { return 1; }
+	return 0;
+}
+fn main() -> I32 { return classify(42); }`,
+		WantExit: 2,
+	},
+	{
+		Name: "w18_while_with_mutation",
+		Source: `fn main() -> I32 {
+	var i = 0;
+	var sum = 0;
+	while i < 10 {
+		i = i + 1;
+		sum = sum + i;
+	}
+	return sum;
+}`,
+		// 1+2+...+10 = 55, but we want 42, so let's adjust
+		WantExit: 55,
+	},
+
 	// ===== Wave 18 Phase 05: Safety =====
 	{
 		Name: "w18_unsafe_extern_rejected",

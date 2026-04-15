@@ -99,12 +99,12 @@
 
 ## 10. Stage 2 Compiler: Name Resolution
 
-- [ ] **10a.** resolve.fuse: define Symbol, Scope, SymbolKind matching Stage 1
-- [ ] **10b.** resolve.fuse: define Module, ModulePath, ModuleGraph
-- [ ] **10c.** resolve.fuse: implement symbol indexing with enum variant hoisting
-- [ ] **10d.** resolve.fuse: implement import resolution with module-first fallback
-- [ ] **10e.** resolve.fuse: implement import cycle detection
-- [ ] **10f.** E2e proof: resolve symbols in a multi-module program
+- [x] **10a.** resolve.fuse: define Symbol, Scope, SymbolKind matching Stage 1
+- [x] **10b.** resolve.fuse: define Module, ModulePath, ModuleGraph
+- [x] **10c.** resolve.fuse: implement symbol indexing with enum variant hoisting
+- [x] **10d.** resolve.fuse: implement import resolution with module-first fallback
+- [x] **10e.** resolve.fuse: implement import cycle detection
+- [x] **10f.** E2e proof: resolve symbols in a multi-module program
 
 ## 11. Stage 2 Compiler: Type System
 

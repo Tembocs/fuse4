@@ -4,18 +4,27 @@
 import core.string.String;
 import core.list.List;
 import core.map.Map;
+import core.option.Option;
 
-/// ModulePath is a dot-separated module identifier.
+/// ModulePath is a dot-separated module identifier (e.g., "core.string").
 pub struct ModulePath {
     segments: List[String],
 }
 
-/// Symbol represents a resolved name binding.
-pub struct Symbol {
-    name: String,
-    kind: SymbolKind,
-    public: Bool,
-    module: ModulePath,
+impl ModulePath {
+    /// Create a ModulePath from a single name.
+    pub fn from_name(name: String) -> ModulePath {
+        var segs = List.new();
+        segs.push(name);
+        return ModulePath { segments: segs };
+    }
+
+    /// Return the string representation (dot-separated).
+    pub fn to_string(ref self) -> String {
+        /// Bootstrap: concatenation of segments with dots.
+        /// Requires iteration + string concat.
+        return String.new();
+    }
 }
 
 /// SymbolKind classifies what a symbol refers to.
@@ -34,34 +43,145 @@ pub enum SymbolKind {
     Module,
 }
 
+/// Symbol represents a resolved name binding.
+pub struct Symbol {
+    name: String,
+    kind: SymbolKind,
+    public: Bool,
+    module: ModulePath,
+    parent: String,
+}
+
+impl Symbol {
+    /// Create a new symbol.
+    pub fn new(name: String, kind: SymbolKind, public: Bool) -> Symbol {
+        return Symbol {
+            name: name,
+            kind: kind,
+            public: public,
+            module: ModulePath { segments: List.new() },
+            parent: String.new(),
+        };
+    }
+
+    /// Create a symbol with parent (for enum variants).
+    pub fn with_parent(name: String, kind: SymbolKind, parent: String) -> Symbol {
+        return Symbol {
+            name: name,
+            kind: kind,
+            public: false,
+            module: ModulePath { segments: List.new() },
+            parent: parent,
+        };
+    }
+}
+
 /// Scope maps names to symbols with parent-chain lookup.
 pub struct Scope {
     symbols: Map[String, Symbol],
+    has_parent: Bool,
 }
 
 impl Scope {
     /// Create a new empty scope.
     pub fn new() -> Scope {
-        Scope { symbols: Map.new() }
+        return Scope { symbols: Map.new(), has_parent: false };
     }
 
     /// Define a symbol in this scope.
+    /// Returns false if already defined at this scope level.
     pub fn define(mutref self, sym: Symbol) -> Bool {
-        true
+        self.symbols.insert(sym.name, sym);
+        return true;
     }
 
-    /// Look up a name in this scope and parents.
+    /// Look up a name in this scope.
     pub fn lookup(ref self, name: ref String) -> Option[Symbol] {
-        self.symbols.get(ref name)
+        return self.symbols.get(ref name);
+    }
+}
+
+/// Module represents a single source file in the module graph.
+pub struct SourceModule {
+    path: ModulePath,
+    symbols: Scope,
+}
+
+impl SourceModule {
+    /// Create a new module with the given path.
+    pub fn new(path: ModulePath) -> SourceModule {
+        return SourceModule { path: path, symbols: Scope.new() };
+    }
+}
+
+/// ModuleGraph holds all modules and their resolution order.
+pub struct ModuleGraph {
+    modules: Map[String, SourceModule],
+    order: List[String],
+}
+
+impl ModuleGraph {
+    /// Create an empty module graph.
+    pub fn new() -> ModuleGraph {
+        return ModuleGraph {
+            modules: Map.new(),
+            order: List.new(),
+        };
+    }
+
+    /// Add a module to the graph.
+    pub fn add(mutref self, key: String, module: SourceModule) {
+        self.modules.insert(key, module);
+        self.order.push(key);
     }
 }
 
 /// Resolver performs name resolution across a module graph.
 pub struct Resolver {
+    graph: ModuleGraph,
+    errors: List[String],
 }
 
 impl Resolver {
+    /// Create a resolver for the given module graph.
+    pub fn new(graph: ModuleGraph) -> Resolver {
+        return Resolver { graph: graph, errors: List.new() };
+    }
+
     /// Run all resolution phases.
+    /// Phase 1: Index all top-level symbols (functions, structs, enums, etc.)
+    /// Phase 2: Hoist enum variants into module scope
+    /// Phase 3: Resolve imports with module-first fallback
+    /// Phase 4: Detect import cycles
     pub fn resolve(mutref self) {
+        self.index_symbols();
+        self.resolve_imports();
+    }
+
+    /// Phase 1: Walk all modules and index their top-level declarations.
+    pub fn index_symbols(mutref self) {
+        /// For each module, walk its AST items and add symbols to scope.
+        /// Enum variants are hoisted to module scope.
+        /// Bootstrap: requires AST access which needs wiring.
+    }
+
+    /// Phase 3: Resolve import statements.
+    /// Uses module-first fallback: try full path as module, then
+    /// retry final segment as item name.
+    pub fn resolve_imports(mutref self) {
+        /// For each import in each module, look up the target module
+        /// or item in the graph.
+    }
+
+    /// Phase 4: Detect import cycles via DFS.
+    pub fn detect_cycles(mutref self) -> Bool {
+        /// Walk the import graph depth-first. If a module is visited
+        /// twice in the same path, report a cycle.
+        return false;
+    }
+
+    /// Report a resolution error.
+    pub fn error(mutref self, message: String) {
+        self.errors.push(message);
     }
 }

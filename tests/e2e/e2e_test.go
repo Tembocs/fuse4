@@ -457,6 +457,14 @@ fn main() -> I32 {
 		WantExit: 42,
 	},
 
+	// ===== Wave 18 Phase 09: Generic Inference =====
+	{
+		Name: "w18_generic_infer_from_arg",
+		Source: `fn identity[T](x: T) -> T { return x; }
+fn main() -> I32 { return identity(42); }`,
+		WantExit: 42,
+	},
+
 	// ===== Compilation Errors =====
 	{
 		Name:      "parse_error",

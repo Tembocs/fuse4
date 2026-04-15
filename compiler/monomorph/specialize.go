@@ -12,6 +12,7 @@ import (
 
 	"github.com/Tembocs/fuse4/compiler/ast"
 	"github.com/Tembocs/fuse4/compiler/diagnostics"
+	"github.com/Tembocs/fuse4/compiler/lex"
 	"github.com/Tembocs/fuse4/compiler/resolve"
 )
 
@@ -131,7 +132,7 @@ func collectExprCalls(e ast.Expr, genericFns map[string]*ast.FnDecl, insts *[]in
 	}
 	switch e := e.(type) {
 	case *ast.CallExpr:
-		// Check for generic call pattern: call(index(ident, type_arg), args)
+		// Check for explicit generic call pattern: call(index(ident, type_arg), args)
 		if idx, ok := e.Callee.(*ast.IndexExpr); ok {
 			if base, ok := idx.Expr.(*ast.IdentExpr); ok {
 				if _, isGen := genericFns[base.Name]; isGen {
@@ -146,6 +147,24 @@ func collectExprCalls(e ast.Expr, genericFns map[string]*ast.FnDecl, insts *[]in
 								specName: specName,
 							})
 						}
+					}
+				}
+			}
+		}
+		// Check for inferred generic call: call(ident(genName), args)
+		// Infer type args from argument types (literals and idents).
+		if ident, ok := e.Callee.(*ast.IdentExpr); ok {
+			if genFn, isGen := genericFns[ident.Name]; isGen {
+				typeArgs := inferTypeArgs(genFn, e.Args)
+				if len(typeArgs) > 0 {
+					specName := makeSpecName(ident.Name, typeArgs)
+					if !seen[specName] {
+						seen[specName] = true
+						*insts = append(*insts, instantiation{
+							genName:  ident.Name,
+							typeArgs: typeArgs,
+							specName: specName,
+						})
 					}
 				}
 			}
@@ -238,6 +257,98 @@ func extractTypeArgs(index ast.Expr) []string {
 	default:
 		return nil
 	}
+}
+
+// inferTypeArgs infers generic type arguments from call arguments.
+// For identity[T](x: T) called as identity(42), infers T=I32.
+func inferTypeArgs(genFn *ast.FnDecl, args []ast.Expr) []string {
+	if len(genFn.GenericParams) == 0 || len(args) == 0 {
+		return nil
+	}
+
+	// Build a map from generic param name to inferred type name.
+	inferred := make(map[string]string)
+
+	for i, param := range genFn.Params {
+		if i >= len(args) {
+			break
+		}
+		// Get the param's type name.
+		paramTypeName := typeExprString(param.Type)
+		if paramTypeName == "" {
+			continue
+		}
+		// Check if this param type is one of the generic params.
+		for _, gp := range genFn.GenericParams {
+			if paramTypeName == gp.Name {
+				// Infer the type from the argument expression.
+				argType := inferExprType(args[i])
+				if argType != "" {
+					inferred[gp.Name] = argType
+				}
+			}
+		}
+	}
+
+	// Build the type args array in order.
+	if len(inferred) != len(genFn.GenericParams) {
+		return nil // couldn't infer all type params
+	}
+	typeArgs := make([]string, len(genFn.GenericParams))
+	for i, gp := range genFn.GenericParams {
+		typeArgs[i] = inferred[gp.Name]
+	}
+	return typeArgs
+}
+
+// inferExprType guesses the type of an expression from its shape.
+func inferExprType(e ast.Expr) string {
+	switch e := e.(type) {
+	case *ast.LiteralExpr:
+		return inferLiteralType(e)
+	case *ast.IdentExpr:
+		// Can't infer type of an ident without scope info.
+		return ""
+	default:
+		return ""
+	}
+}
+
+// inferLiteralType returns the default type name for a literal.
+func inferLiteralType(e *ast.LiteralExpr) string {
+	switch e.Token.Kind {
+	case lex.IntLit:
+		lit := e.Token.Literal
+		suffixes := []struct{ s, t string }{
+			{"i8", "I8"}, {"i16", "I16"}, {"i32", "I32"}, {"i64", "I64"},
+			{"u8", "U8"}, {"u16", "U16"}, {"u32", "U32"}, {"u64", "U64"},
+			{"isize", "ISize"}, {"usize", "USize"},
+		}
+		for _, sf := range suffixes {
+			if len(lit) > len(sf.s) && lit[len(lit)-len(sf.s):] == sf.s {
+				return sf.t
+			}
+		}
+		return "I32"
+	case lex.FloatLit:
+		return "F64"
+	case lex.StringLit, lex.RawStringLit:
+		return "String"
+	case lex.KwTrue, lex.KwFalse:
+		return "Bool"
+	}
+	return ""
+}
+
+// typeExprString extracts the simple name from a type expression.
+func typeExprString(te ast.TypeExpr) string {
+	if te == nil {
+		return ""
+	}
+	if pt, ok := te.(*ast.PathType); ok && len(pt.Segments) > 0 {
+		return pt.Segments[len(pt.Segments)-1]
+	}
+	return ""
 }
 
 // makeSpecName generates a deterministic specialized function name.
@@ -591,6 +702,19 @@ func rewriteExprCalls(e ast.Expr, genericFns map[string]*ast.FnDecl) {
 							Span: diagnostics.Span{},
 							Name: specName,
 						}
+					}
+				}
+			}
+		}
+		// Also rewrite inferred generic calls: call(ident(genName), args) → call(ident(specName), args)
+		if ident, ok := e.Callee.(*ast.IdentExpr); ok {
+			if genFn, isGen := genericFns[ident.Name]; isGen {
+				typeArgs := inferTypeArgs(genFn, e.Args)
+				if len(typeArgs) > 0 {
+					specName := makeSpecName(ident.Name, typeArgs)
+					e.Callee = &ast.IdentExpr{
+						Span: diagnostics.Span{},
+						Name: specName,
 					}
 				}
 			}

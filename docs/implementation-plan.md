@@ -81,8 +81,9 @@ In this document, task bullets use the compact form:
 | 14 | Stage 2 port | Wave 13 done | stage1 compiles stage2 successfully |
 | 15 | Self-hosting gate | Wave 14 done | stage2 compiles itself reproducibly |
 | 16 | Native backend transition | Wave 15 done | bootstrap C11 dependency is removed |
-| 17 | Retirement of Go and C | Wave 16 done | Fuse owns the compiler implementation path |
-| 18 | Targets and ecosystem | Wave 17 done | cross-target and library growth resume on native base |
+| 17 | Generics end-to-end | Wave 16 done | generic functions and types compile, run, and produce correct output |
+| 18 | Retirement of Go and C | Wave 17 done | Fuse owns the compiler implementation path |
+| 19 | Targets and ecosystem | Wave 18 done | cross-target and library growth resume on native base |
 
 ## Wave 00: Project Foundations
 
@@ -833,12 +834,238 @@ Exit criteria:
   [W16-P02-T02-REMOVE-C11-REQUIREMENT]
   DoD: C11 backend becomes optional or retired.
 
-## Wave 17: Retirement of Go and C from the Compiler Path
+## Wave 17: Generics End-to-End
+
+Goal: make generic functions and generic types compile through the full pipeline
+and produce correct running programs. Currently the `monomorph` package exists
+but is not integrated, the checker resolves generic type args but does not
+propagate them to specialization, and no generic program has ever compiled to a
+working binary.
+
+Entry criterion: Wave 16 done.
+
+Exit criteria:
+
+- a generic function called with two different concrete types produces two
+  distinct specialized functions in the generated C
+- `Option[I32]` and `Result[I32, Bool]` compile and run through pattern matching
+- all proof programs in this wave compile, link, run, and return the expected
+  exit code
+
+Proof programs (each must pass as an e2e test):
+
+```fuse
+// P1: basic generic function
+fn identity[T](x: T) -> T { return x; }
+fn main() -> I32 { return identity[I32](42); }
+// expected: exit code 42
+
+// P2: two instantiations of the same generic
+fn first[T](a: T, b: T) -> T { return a; }
+fn main() -> I32 {
+    let x = first[I32](10, 20);
+    let y = first[I32](3, 7);
+    return x + y;
+}
+// expected: exit code 13
+
+// P3: generic type (Option) with pattern matching
+// (requires enum layout, discriminant, and match dispatch)
+```
+
+### Phase 01: Generic Parameter Scoping in the Checker [W17-P01-GENERIC-PARAM-SCOPING]
+
+Currently the checker resolves type expressions but does not register generic
+type parameters (`T`, `U`) as in-scope types during body checking of generic
+functions. This phase ensures `T` is a valid type inside the body.
+
+- Task 01: Register generic params in the function's local type scope
+  [W17-P01-T01-REGISTER-GENERIC-PARAMS]
+  Currently stubbed: the checker ignores `fn.GenericParams` during body
+  checking (`compiler/check/checker.go:208-224`).
+  DoD: inside `fn identity[T](x: T) -> T { return x; }`, the parameter `x`
+  resolves to type `T` (a GenericParam TypeId), and the return type resolves to
+  `T`.
+- Task 02: Resolve explicit type arguments at call sites
+  [W17-P01-T02-RESOLVE-CALL-SITE-TYPE-ARGS]
+  Currently stubbed: `checkCall` does not match explicit type args like
+  `identity[I32](42)` to the generic function's type parameters.
+  DoD: `identity[I32](42)` resolves `T=I32` and the call's return type is
+  `I32`.
+- Task 03: Add checker tests for generic param scoping
+  [W17-P01-T03-CHECKER-GENERIC-TESTS]
+  DoD: unit tests verify that generic param types flow through function
+  bodies and that explicit type args at call sites resolve correctly.
+
+### Phase 02: Instantiation Collection [W17-P02-INSTANTIATION-COLLECTION]
+
+The `compiler/monomorph/` package has `Context.Record()` but it is never called.
+This phase integrates it into the driver pipeline.
+
+- Task 01: Scan checked AST for generic call sites
+  [W17-P02-T01-SCAN-GENERIC-CALL-SITES]
+  Currently missing: no code walks the checked AST to find calls with type
+  arguments.
+  DoD: after checking, the driver collects all concrete instantiations
+  (function name + type arg list) via `monomorph.Context.Record()`.
+- Task 02: Validate instantiation completeness
+  [W17-P02-T02-VALIDATE-INSTANTIATION-COMPLETENESS]
+  Currently implemented in `monomorph.Record()` (rejects partial
+  specializations). Verify it works in the integrated pipeline.
+  DoD: a call like `identity[Unknown]()` produces a diagnostic, not a silent
+  fallback.
+- Task 03: Add driver tests for instantiation collection
+  [W17-P02-T03-INSTANTIATION-COLLECTION-TESTS]
+  DoD: driver tests verify that `Build()` with a generic program produces
+  the expected number of instantiations and rejects incomplete ones.
+
+### Phase 03: Generic Function Body Specialization [W17-P03-BODY-SPECIALIZATION]
+
+This is the core of monomorphization: duplicating a generic function body with
+concrete types substituted for type parameters.
+
+- Task 01: Implement AST-level body duplication with type substitution
+  [W17-P03-T01-AST-BODY-DUPLICATION]
+  Currently missing: no code duplicates a function body.
+  DoD: given `fn identity[T](x: T) -> T { return x; }` and `T=I32`, a new
+  concrete `FnDecl` is produced with `T` replaced by `I32` in all parameter
+  types, return types, and body type expressions.
+- Task 02: Generate specialized function names
+  [W17-P03-T02-SPECIALIZED-FUNCTION-NAMES]
+  Currently missing: no naming scheme for specialized functions.
+  DoD: `identity[I32]` produces a function named `identity__I32` (or similar
+  deterministic scheme). The name is used consistently in declaration and at
+  call sites.
+- Task 03: Rewrite call sites to reference specialized names
+  [W17-P03-T03-REWRITE-CALL-SITES]
+  Currently missing: call sites reference the generic name.
+  DoD: `identity[I32](42)` in the caller's body is rewritten to call
+  `identity__I32(42)`.
+- Task 04: Add unit tests for body specialization
+  [W17-P03-T04-SPECIALIZATION-TESTS]
+  DoD: unit tests verify that a generic function produces a correctly typed
+  concrete function after substitution, and that call sites reference the
+  specialized name.
+
+### Phase 04: Driver Pipeline Integration [W17-P04-DRIVER-PIPELINE-INTEGRATION]
+
+Wire the specialization output into the existing driver pipeline so specialized
+functions flow through HIR → liveness → MIR → codegen.
+
+- Task 01: Insert specialization step between checking and HIR building
+  [W17-P04-T01-INSERT-SPECIALIZATION-STEP]
+  Currently missing: the driver goes directly from checking to HIR building.
+  DoD: the driver runs instantiation collection, then body specialization,
+  then feeds the specialized concrete functions (not the generic originals)
+  into the HIR builder.
+- Task 02: Skip generic function originals in codegen
+  [W17-P04-T02-SKIP-GENERIC-ORIGINALS]
+  Currently missing: generic functions with unresolved type params would
+  produce invalid C if lowered.
+  DoD: functions with `GenericParams` are not lowered unless they have been
+  specialized. Only concrete specializations reach codegen.
+- Task 03: Verify generated C for basic generic proof program
+  [W17-P04-T03-VERIFY-GENERATED-C]
+  DoD: `identity[I32](42)` produces C containing a function
+  `Fuse_identity__I32` that takes `int32_t` and returns `int32_t`, and
+  `main` calls it. The C compiles with gcc.
+
+### Phase 05: Proof Program P1 — Basic Generic Function [W17-P05-PROOF-P1]
+
+- Task 01: Add e2e test for basic generic function
+  [W17-P05-T01-E2E-BASIC-GENERIC]
+  DoD: the following program compiles, runs, and exits with code 42:
+  `fn identity[T](x: T) -> T { return x; } fn main() -> I32 { return identity[I32](42); }`
+- Task 02: Fix any failures surfaced by the proof program
+  [W17-P05-T02-FIX-P1-FAILURES]
+  DoD: the e2e test passes. Any bugs found are fixed with regressions and
+  learning-log entries.
+
+### Phase 06: Multiple Instantiations [W17-P06-MULTIPLE-INSTANTIATIONS]
+
+- Task 01: Verify two instantiations of the same generic produce distinct
+  functions [W17-P06-T01-TWO-INSTANTIATIONS]
+  Currently: `monomorph.Record()` deduplicates, so `identity[I32]` and
+  `identity[Bool]` should produce two entries.
+  DoD: generated C contains both `Fuse_identity__I32` and
+  `Fuse_identity__Bool`.
+- Task 02: Add e2e test for multiple instantiations
+  [W17-P06-T02-E2E-MULTIPLE-INSTANTIATIONS]
+  DoD: a program calling `first[I32](10, 20)` and using the result compiles,
+  runs, and exits with the correct code.
+
+### Phase 07: Generic Types (Option, Result) [W17-P07-GENERIC-TYPES]
+
+Generic types like `Option[T]` require enum layout with a discriminant tag
+and payload fields that vary by type argument. This phase extends
+monomorphization from functions to types.
+
+- Task 01: Specialize generic enum types
+  [W17-P07-T01-SPECIALIZE-GENERIC-ENUMS]
+  Currently missing: `Option[I32]` is interned as a TypeId with TypeArgs but
+  no concrete enum layout is generated.
+  DoD: `Option[I32]` produces a concrete C struct with a `_tag` field and
+  a payload field of type `int32_t`.
+- Task 02: Emit specialized enum type definitions in codegen
+  [W17-P07-T02-EMIT-SPECIALIZED-ENUM-TYPES]
+  Currently: codegen emits `typedef struct Name Name;` for enums but does not
+  emit field definitions for the tag and payload.
+  DoD: generated C for `Option[I32]` includes a struct definition with `int
+  _tag;` and `int32_t _f0;` fields.
+- Task 03: Specialize generic struct types
+  [W17-P07-T03-SPECIALIZE-GENERIC-STRUCTS]
+  DoD: generic structs with type parameters produce concrete field layouts
+  after substitution.
+
+### Phase 08: Enum Construction and Destructuring with Generics [W17-P08-ENUM-GENERICS]
+
+- Task 01: Emit specialized enum variant constructors
+  [W17-P08-T01-SPECIALIZED-ENUM-CONSTRUCTORS]
+  DoD: `Option.Some[I32](42)` produces C that initializes the specialized
+  Option_I32 struct with `_tag=0` and `_f0=42`.
+- Task 02: Lower match on specialized enums to discriminant dispatch
+  [W17-P08-T02-MATCH-ON-SPECIALIZED-ENUMS]
+  DoD: `match opt { Some(v) { ... } None { ... } }` on `Option[I32]` reads
+  `_tag`, branches, and extracts `_f0` as `int32_t`.
+- Task 03: Add e2e test for Option with pattern matching
+  [W17-P08-T03-E2E-OPTION-MATCH]
+  DoD: a program that creates `Some(42)`, matches on it, and returns the
+  inner value compiles, runs, and exits with code 42.
+
+### Phase 09: Error Propagation with Generics [W17-P09-ERROR-PROPAGATION-GENERICS]
+
+The `?` operator was implemented for the lowerer (L009) but requires a
+specialized `Result[T, E]` type to work end-to-end.
+
+- Task 01: Verify `?` on specialized Result type
+  [W17-P09-T01-QUESTION-ON-SPECIALIZED-RESULT]
+  DoD: `?` on `Result[I32, Bool]` reads `_tag`, branches, extracts `_f0` as
+  `int32_t` on success, and early-returns the Result on failure.
+- Task 02: Add e2e test for error propagation
+  [W17-P09-T02-E2E-ERROR-PROPAGATION]
+  DoD: a program that uses `?` on a Result value compiles, runs, and returns
+  the expected exit code for both the Ok and Err paths.
+
+### Phase 10: Regression Closure [W17-P10-REGRESSION-CLOSURE]
+
+- Task 01: Add regression tests for all fixed generic edge cases
+  [W17-P10-T01-GENERIC-REGRESSIONS]
+  DoD: every bug found during this wave has a regression test.
+- Task 02: Update learning log with any new lessons
+  [W17-P10-T02-UPDATE-LEARNING-LOG]
+  DoD: learning-log entries exist for any design gaps or architectural
+  lessons discovered during generic implementation.
+- Task 03: Verify all proof programs pass in CI
+  [W17-P10-T03-CI-PROOF-PROGRAMS]
+  DoD: the e2e test suite including all generic proof programs passes in the
+  CI matrix (Linux, macOS, Windows).
+
+## Wave 18: Retirement of Go and C from the Compiler Path
 
 Goal: complete the transition from bootstrap implementation languages to a Fuse
 compiler implemented and built by Fuse.
 
-Entry criterion: Wave 16 done.
+Entry criterion: Wave 17 done.
 
 Exit criteria:
 
@@ -847,46 +1074,46 @@ Exit criteria:
 - C is no longer required as a backend or runtime implementation dependency in
   the compiler path
 
-### Phase 01: Retire Go [W17-P01-RETIRE-GO]
+### Phase 01: Retire Go [W18-P01-RETIRE-GO]
 
-- Task 01: Freeze Stage 1 as archival bootstrap tool [W17-P01-T01-FREEZE-STAGE1]
+- Task 01: Freeze Stage 1 as archival bootstrap tool [W18-P01-T01-FREEZE-STAGE1]
   DoD: Stage 1 is no longer required for ordinary compiler development.
 - Task 02: Remove Go from active compiler build workflow
-  [W17-P01-T02-REMOVE-GO-FROM-WORKFLOW]
+  [W18-P01-T02-REMOVE-GO-FROM-WORKFLOW]
   DoD: supported build path no longer invokes Go.
 
-### Phase 02: Retire C [W17-P02-RETIRE-C]
+### Phase 02: Retire C [W18-P02-RETIRE-C]
 
 - Task 01: Replace C runtime dependencies as required
-  [W17-P02-T01-REPLACE-C-RUNTIME]
+  [W18-P02-T01-REPLACE-C-RUNTIME]
   DoD: compiler implementation path no longer requires C runtime code.
 - Task 02: Remove C from compiler bootstrap assumptions
-  [W17-P02-T02-REMOVE-C-FROM-BOOTSTRAP-ASSUMPTIONS]
+  [W18-P02-T02-REMOVE-C-FROM-BOOTSTRAP-ASSUMPTIONS]
   DoD: compiler implementation is Fuse-only.
 
-## Wave 18: Targets and Ecosystem Growth
+## Wave 19: Targets and Ecosystem Growth
 
 Goal: resume broader target and library work on top of the self-hosted native
 compiler.
 
-Entry criterion: Wave 17 done.
+Entry criterion: Wave 18 done.
 
 Exit criteria:
 
 - target expansion and library growth occur without reintroducing bootstrap debt
 
-### Phase 01: Additional Targets [W18-P01-ADDITIONAL-TARGETS]
+### Phase 01: Additional Targets [W19-P01-ADDITIONAL-TARGETS]
 
-- Task 01: Add target descriptions [W18-P01-T01-TARGET-DESCRIPTIONS]
+- Task 01: Add target descriptions [W19-P01-T01-TARGET-DESCRIPTIONS]
   DoD: each supported target has a documented ABI and validation path.
-- Task 02: Add target CI [W18-P01-T02-TARGET-CI]
+- Task 02: Add target CI [W19-P01-T02-TARGET-CI]
   DoD: target regressions are visible immediately.
 
-### Phase 02: Extended Libraries [W18-P02-EXTENDED-LIBRARIES]
+### Phase 02: Extended Libraries [W19-P02-EXTENDED-LIBRARIES]
 
-- Task 01: Implement ext stdlib modules [W18-P02-T01-EXT-STDLIB]
+- Task 01: Implement ext stdlib modules [W19-P02-T01-EXT-STDLIB]
   DoD: optional libraries build on the stable core and hosted tiers.
-- Task 02: Publish ecosystem guidance [W18-P02-T02-ECOSYSTEM-GUIDANCE]
+- Task 02: Publish ecosystem guidance [W19-P02-T02-ECOSYSTEM-GUIDANCE]
   DoD: package authors have clear compatibility and safety rules.
 
 ## Cross-cutting constraints

@@ -807,3 +807,99 @@ language-guide.md, and repository-layout.md are updated to include the
 requirements above; (b) every implemented feature has a proof program in
 `tests/e2e/`; and (c) the e2e suite fails if any feature is reverted to a
 stub.
+
+### L015 — Generics require a dedicated wave with proof programs at every phase
+
+Date: 2026-04-15
+Discovered during: Pre-Wave-17 planning, after L007–L014 audit
+
+**Reproducer**:
+The monomorphization package (`compiler/monomorph/`) was implemented with
+`Record`, `Substitute`, and `IsGeneric` methods. Unit tests pass. But no generic
+Fuse program has ever compiled to a working binary. The package is not integrated
+into the driver pipeline, no code scans call sites for generic instantiations,
+no code duplicates function bodies with substituted types, and no code rewrites
+call sites to reference specialized names.
+
+The implementation plan placed monomorphization in Wave 05 Phase 06 (four tasks)
+but the tasks described the monomorph package internals, not the pipeline
+integration or end-to-end behavior. A program like
+`fn identity[T](x: T) -> T { return x; } fn main() -> I32 { return identity[I32](42); }`
+has never been tested.
+
+**What was tried first**:
+Monomorphization was added as a phase within the type-checking wave (Wave 05)
+because it is conceptually related to type resolution. The four tasks described
+collecting instantiations, validating completeness, specializing functions, and
+integrating into the pipeline. Each task had a DoD. The monomorph package was
+implemented and unit-tested.
+
+**Root cause**:
+Generics touch every stage of the pipeline: parsing (generic params), resolution
+(type param scoping), checking (type arg inference), monomorphization
+(collection and substitution), AST-to-HIR bridge (body duplication), lowering
+(concrete types in MIR), and codegen (specialized function names and type
+layouts). Cramming this into a single phase of another wave hid the cross-cutting
+dependencies. Each component was built in isolation and none were connected.
+
+The specific gaps:
+1. The checker does not register generic type parameters as in-scope types
+   during body checking.
+2. The checker does not resolve explicit type arguments at call sites.
+3. No code scans the checked AST to collect concrete instantiations.
+4. No code duplicates generic function bodies with concrete type substitution.
+5. No code generates specialized function names.
+6. No code rewrites call sites to reference specialized names.
+7. The driver does not run monomorphization between checking and HIR building.
+8. Generic functions with unresolved type parameters are not skipped in codegen.
+9. Generic enum types (Option, Result) have no concrete field layout in codegen.
+10. The `?` operator depends on specialized Result/Option layout that does not
+    exist.
+
+**Spec gap**:
+The language guide describes generics and monomorphization but does not specify
+the concrete compilation model: what a specialized function looks like in the
+generated code, how call sites reference it, or how generic type layouts map to
+C struct definitions.
+
+**Plan gap**:
+The implementation plan placed monomorphization as a phase within Wave 05 with
+four tasks. The tasks were structural ("collect instantiations", "validate
+completeness") rather than behavioral ("this program compiles and runs"). No
+proof program was required. The cross-cutting nature of generics — touching
+parser, checker, monomorphizer, bridge, lowerer, and codegen — was not reflected
+in the task structure.
+
+**Fix**:
+Create a dedicated Wave 17 (Generics End-to-End) with 10 phases and proof
+programs at every integration point:
+- Phase 01: Generic parameter scoping in the checker
+- Phase 02: Instantiation collection in the driver
+- Phase 03: Generic function body specialization
+- Phase 04: Driver pipeline integration
+- Phase 05: Proof program P1 (basic generic function)
+- Phase 06: Multiple instantiations
+- Phase 07: Generic types (Option, Result) with concrete layouts
+- Phase 08: Enum construction and destructuring with generics
+- Phase 09: Error propagation with generics
+- Phase 10: Regression closure
+
+Each phase has a behavioral exit criterion. Phases 05, 06, 08, and 09 require
+e2e proof programs that compile, run, and produce the correct exit code.
+
+**Cascading effects**:
+The existing Wave 17 (Retirement of Go and C) and Wave 18 (Targets and
+Ecosystem) are renumbered to Wave 18 and Wave 19. Generics must work before
+the bootstrap path is retired, because a self-hosted compiler that cannot
+compile generic programs is not a complete compiler.
+
+**Architectural lesson**:
+Cross-cutting features cannot be implemented as a phase within a single wave.
+When a feature touches every stage of the pipeline, it needs its own wave with
+its own entry criteria, exit criteria, and proof programs. The granularity of
+the wave must match the granularity of the integration risk.
+
+**Verification**:
+This entry is verified when Wave 17 Phase 05 Task 01 passes: the proof program
+`fn identity[T](x: T) -> T { return x; } fn main() -> I32 { return identity[I32](42); }`
+compiles, runs, and exits with code 42.

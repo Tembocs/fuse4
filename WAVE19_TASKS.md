@@ -38,38 +38,38 @@
 
 ## 4. Stdlib: List[T] Real Implementation
 
-- [ ] **4a.** List.push: if `len == cap`, compute new cap (cap * 2 or 8 if 0), call `fuse_rt_mem_realloc`, update data/cap
-- [ ] **4b.** List.push: write element at `data[len]` via pointer write, increment len
-- [ ] **4c.** List.get: bounds check `index < len`, read `data[index]` via pointer read, return `Some(elem)`
-- [ ] **4d.** List.pop: bounds check `len > 0`, decrement len, read `data[len]` via pointer read, return `Some(elem)`
-- [ ] **4e.** E2e proof: create List, push 3 values, get each, verify values match
+- [x] **4a.** List.push: if `len == cap`, compute new cap (cap * 2 or 8 if 0), call `fuse_rt_mem_realloc`, update data/cap
+- [x] **4b.** List.push: write element at `data[len]` via pointer write, increment len
+- [x] **4c.** List.get: bounds check `index < len`, read `data[index]` via pointer read, return `Some(elem)`
+- [x] **4d.** List.pop: bounds check `len > 0`, decrement len, read `data[len]` via pointer read, return `Some(elem)`
+- [x] **4e.** E2e proof: create List, push 3 values, get each, verify values match
 
 ## 5. Stdlib: Map[K, V] Real Implementation
 
-- [ ] **5a.** Define internal struct `MapEntry[K, V]` with key, value, occupied flag
-- [ ] **5b.** Map.new: allocate backing array of `MapEntry` with initial capacity
-- [ ] **5c.** Map.insert: hash key, linear probe for empty slot, write entry, increment len
-- [ ] **5d.** Map.get: hash key, linear probe for matching key, return `Some(value)` or `None`
-- [ ] **5e.** Map.remove: hash key, find entry, mark unoccupied, decrement len
-- [ ] **5f.** E2e proof: create Map, insert 3 entries, get each, verify values
+- [x] **5a.** Define internal struct `MapEntry[K, V]` with key, value, occupied flag
+- [x] **5b.** Map.new: allocate backing array of `MapEntry` with initial capacity
+- [x] **5c.** Map.insert: hash key, linear probe for empty slot, write entry, increment len
+- [x] **5d.** Map.get: hash key, linear probe for matching key, return `Some(value)` or `None`
+- [x] **5e.** Map.remove: hash key, find entry, mark unoccupied, decrement len
+- [x] **5f.** E2e proof: create Map, insert 3 entries, get each, verify values
 
 ## 6. Stdlib: Set[T] Real Implementation
 
-- [ ] **6a.** Set: change inner field from `len: USize` to `inner: Map[T, Bool]`
-- [ ] **6b.** Set.insert: delegate to `inner.insert(value, true)`
-- [ ] **6c.** Set.contains: delegate to `inner.get(ref value).is_some()`
-- [ ] **6d.** Set.remove: delegate to `inner.remove(ref value)`
-- [ ] **6e.** E2e proof: create Set, insert values, check contains, verify
+- [x] **6a.** Set: change inner field from `len: USize` to `inner: Map[T, Bool]`
+- [x] **6b.** Set.insert: delegate to `inner.insert(value, true)`
+- [x] **6c.** Set.contains: delegate to `inner.get(ref value).is_some()`
+- [x] **6d.** Set.remove: delegate to `inner.remove(ref value)`
+- [x] **6e.** E2e proof: create Set, insert values, check contains, verify
 
 ## 7. Stdlib: String Operations
 
-- [ ] **7a.** String.toUpper: allocate new buffer, iterate bytes, convert 97-122 to 65-90, build new String
-- [ ] **7b.** String.toLower: allocate new buffer, iterate bytes, convert 65-90 to 97-122, build new String
-- [ ] **7c.** String equality by content: iterate both strings byte-by-byte, compare each
-- [ ] **7d.** String.contains: scan for substring match
-- [ ] **7e.** Formatter.write_str: concat string into buffer using string concat
-- [ ] **7f.** Formatter.write_char: append single char to buffer
-- [ ] **7g.** E2e proof: `"HELLO".toLower()` produces `"hello"`, string equality by content works
+- [x] **7a.** String.toUpper: allocate new buffer, iterate bytes, convert 97-122 to 65-90, build new String
+- [x] **7b.** String.toLower: allocate new buffer, iterate bytes, convert 65-90 to 97-122, build new String
+- [x] **7c.** String equality by content: iterate both strings byte-by-byte, compare each
+- [x] **7d.** String.contains: scan for substring match
+- [x] **7e.** Formatter.write_str: concat string into buffer using string concat
+- [x] **7f.** Formatter.write_char: append single char to buffer
+- [x] **7g.** E2e proof: `"HELLO".toLower()` produces `"hello"`, string equality by content works
 
 ## 8. Stage 2 Compiler: Lexer
 

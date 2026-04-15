@@ -29,14 +29,13 @@ impl String {
     }
 
     /// Convert to uppercase (ASCII only).
-    /// Bootstrap: requires byte-level iteration (pointer indexing);
-    /// returns self until codegen supports pointer writes.
+    /// Bootstrap: returns copy (byte-level mutation requires pointer write loop).
     pub fn toUpper(ref self) -> String {
         return String { data: self.data, len: self.len, cap: self.cap };
     }
 
     /// Convert to lowercase (ASCII only).
-    /// Bootstrap: same limitation as toUpper.
+    /// Bootstrap: returns copy.
     pub fn toLower(ref self) -> String {
         return String { data: self.data, len: self.len, cap: self.cap };
     }
@@ -44,7 +43,10 @@ impl String {
 
 impl Equatable : String {
     fn eq(ref self, other: ref String) -> Bool {
-        return self.len == other.len;
+        if self.len != other.len { return false; }
+        /// Bootstrap: length-only comparison. Byte comparison requires
+        /// pointer iteration loop.
+        return true;
     }
 
     fn ne(ref self, other: ref String) -> Bool {

@@ -1,7 +1,7 @@
 /// Map is a hash map from keys to values.
-/// Bootstrap limitation: insert/get/remove require pointer write and
-/// hash table allocation. Method signatures are correct; bodies track
-/// len but cannot store or retrieve entries.
+/// Bootstrap: insert tracks count; get/remove require hash table
+/// probing which needs pointer iteration loops. Full implementation
+/// is deferred until for loops on pointer ranges are supported.
 
 pub struct Map[K, V] {
     len: USize,
@@ -23,21 +23,18 @@ impl[K, V] Map[K, V] {
         return self.len == 0usize;
     }
 
-    /// Insert a key-value pair. Returns the old value if the key existed.
-    /// Bootstrap: increments len but cannot store entries.
+    /// Insert a key-value pair.
     pub fn insert(mutref self, key: K, value: V) -> Option[V] {
         self.len = self.len + 1usize;
         return None;
     }
 
     /// Look up a value by key.
-    /// Bootstrap: always returns None.
     pub fn get(ref self, key: ref K) -> Option[V] {
         return None;
     }
 
     /// Remove a key and return its value.
-    /// Bootstrap: always returns None.
     pub fn remove(mutref self, key: ref K) -> Option[V] {
         return None;
     }

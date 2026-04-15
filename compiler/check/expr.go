@@ -433,6 +433,8 @@ func (c *Checker) checkIndex(e *ast.IndexExpr) typetable.TypeId {
 	switch te.Kind {
 	case typetable.KindArray, typetable.KindSlice:
 		return te.Elem
+	case typetable.KindPtr:
+		return te.Elem
 	}
 	return c.Types.Unknown
 }

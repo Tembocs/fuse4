@@ -339,7 +339,14 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 
 	case mir.InstrIndex:
 		e.writeIndent()
-		e.writef("%s = %s.data[%s];", dest, e.localValue(instr.Src), e.localValue(instr.Src2))
+		// For array types: src.data[idx]. For pointer/slice: src[idx] or src.data[idx].
+		srcType := fn.Locals[instr.Src].Type
+		srcEntry := e.Types.Get(srcType)
+		if srcEntry.Kind == typetable.KindPtr {
+			e.writef("%s = %s[%s];", dest, e.localValue(instr.Src), e.localValue(instr.Src2))
+		} else {
+			e.writef("%s = %s.data[%s];", dest, e.localValue(instr.Src), e.localValue(instr.Src2))
+		}
 		e.writeln("")
 
 	case mir.InstrBinOp:
@@ -398,8 +405,6 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 		e.writeln("")
 
 	case mir.InstrPtrWrite:
-		// For array types: dest.data[index] = value
-		// For pointer types: dest[index] = value
 		e.writeIndent()
 		destLocal := e.localName(instr.Dest)
 		te := e.Types.Get(fn.Locals[instr.Dest].Type)

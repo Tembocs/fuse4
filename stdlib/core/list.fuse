@@ -1,7 +1,4 @@
 /// List is a growable, heap-allocated array.
-/// Bootstrap limitation: push/pop/get require pointer write support
-/// in codegen which is not yet implemented. Method signatures are
-/// correct and type-check; bodies use simplified logic.
 
 pub struct List[T] {
     data: Ptr[T],
@@ -26,25 +23,38 @@ impl[T] List[T] {
     }
 
     /// Append an element to the end.
-    /// Bootstrap: increments len but cannot write to backing memory
-    /// (requires pointer write support in codegen).
     pub fn push(mutref self, item: T) {
+        if self.len == self.cap {
+            var new_cap = self.cap * 2usize;
+            if new_cap == 0usize {
+                new_cap = 8usize;
+            }
+            unsafe {
+                extern fn fuse_rt_mem_realloc(ptr: Ptr[U8], size: USize) -> Ptr[U8];
+                self.data = fuse_rt_mem_realloc(self.data, new_cap);
+            }
+            self.cap = new_cap;
+        }
+        self.data[self.len] = item;
         self.len = self.len + 1usize;
     }
 
     /// Remove and return the last element, or None.
-    /// Bootstrap: decrements len but cannot read from backing memory.
     pub fn pop(mutref self) -> Option[T] {
         if self.len == 0usize {
             return None;
         }
         self.len = self.len - 1usize;
-        return None;
+        let val = self.data[self.len];
+        return Some(val);
     }
 
     /// Return the element at index, or None.
-    /// Bootstrap: bounds check works, element read requires pointer indexing.
     pub fn get(ref self, index: USize) -> Option[T] {
-        return None;
+        if index >= self.len {
+            return None;
+        }
+        let val = self.data[index];
+        return Some(val);
     }
 }

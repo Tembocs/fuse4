@@ -1379,3 +1379,100 @@ functionality as methods but bypass the impl-level scoping problem.
 29 e2e proof programs pass. 61 total e2e tests pass (including 32
 pre-existing). 17 Go packages compile and pass all unit tests. Zero
 regressions from Wave 17 or earlier.
+
+### L018 — Generic impl blocks must be implemented before the stdlib
+
+Date: 2026-04-15
+Discovered during: Wave 18 / Language Completeness implementation
+
+**Reproducer**:
+The stdlib defines `impl Option { fn unwrap_or(...) }`, `impl Result { ... }`,
+`impl[T] Iterator for List[T]`, and every collection and trait implementation
+as generic impl blocks. None of these can compile because the compiler has no
+support for `impl[T] Type[T]`. The stdlib was scheduled in Waves 12–13 but
+its prerequisite — generic impl blocks — was never scheduled as its own wave
+or given a concrete implementation plan.
+
+**What was tried first**:
+Generic functions were implemented via AST-level monomorphization (clone the
+function body, substitute type parameters, run the checker on the concrete
+copy). This works because generic functions are self-contained: the type
+parameters, the body, and the call site are all in one place. The assumption
+was that generic impl blocks would work the same way.
+
+**Root cause**:
+Generic impl blocks are a type system feature, not a syntactic transformation.
+`impl[T] Option[T] { fn unwrap_or(ref self, default: T) -> T }` requires:
+1. Knowing the concrete type of `self` at the call site (e.g., `Option[I32]`).
+2. Substituting `T = I32` into the method's parameter and return types.
+3. Scoping `T` as a valid type inside the method body during checking.
+4. Specializing the method for each distinct concrete receiver type.
+
+All of these require type information. AST-level monomorphization runs before
+type checking and cannot resolve which impl applies to which concrete type.
+
+**Spec gap**:
+The language guide specifies generic impl blocks but does not define when in
+the compilation pipeline they are resolved. The implementation contracts say
+"monomorphization completeness" but do not distinguish between function-level
+and impl-level generics.
+
+**Plan gap**:
+The implementation plan placed monomorphization in Wave 05 Phase 06 as four
+tasks focused on generic functions. Generic impl blocks were not scheduled
+anywhere. The stdlib waves (12–13) assumed they existed. This created a
+silent dependency gap that was not discovered until Wave 18 tried to compile
+the stdlib.
+
+**Fix**:
+Generic impl blocks must be implemented as a dedicated wave or phase before
+the stdlib. The correct placement in the plan is:
+
+- After Wave 05 (type checking is stable)
+- Before Wave 12 (stdlib depends on them)
+- Ideally as part of Wave 17 (Generics End-to-End) or its own wave
+
+The implementation must happen during or after type checking, not before it.
+The monomorphizer for impl methods needs access to the checker's resolved
+types to determine which concrete types each impl is instantiated for. This
+is fundamentally different from generic function monomorphization.
+
+Viable implementation approaches:
+1. **Post-check specialization**: after the checker runs, scan all method
+   call sites, determine the concrete receiver type, look up the generic
+   impl, substitute type parameters, and produce a concrete method. This
+   is how Rust (rustc) handles it at MIR level.
+2. **During-check instantiation**: when the checker encounters a method
+   call on a concrete generic type, instantiate the impl's methods on the
+   fly with the concrete type args. This is how Go handles generic
+   instantiation (stenciling during type checking).
+3. **Two-pass approach**: first pass collects all concrete types that each
+   generic impl is used with; second pass specializes the impl methods.
+
+**Cascading effects**:
+Without generic impl blocks, the following cannot work:
+- `impl[T] Option[T]` → Option methods (unwrap, map, unwrap_or)
+- `impl[T, E] Result[T, E]` → Result methods
+- `impl[T] Iterator for List[T]` → collection iteration
+- `impl[T] Clone for List[T]` → collection cloning
+- `impl Equatable for I32` with trait dispatch → operator overloading
+- Every stdlib module that declares methods on generic types
+
+This makes generic impl blocks the single most critical unimplemented feature
+in the compiler. Everything else — stdlib, iteration, trait dispatch on
+generic types, the self-hosted compiler — is blocked on it.
+
+**Architectural lesson**:
+Generic impl blocks must be implemented before the stdlib, and they must be
+implemented as a type system feature (during or after type checking), not as
+a syntactic transformation (before type checking). Any implementation plan
+for a language with generics and trait/impl systems must schedule generic
+impl blocks early — they are not an extension of generic functions, they are
+a separate feature with different architectural requirements. Treating them
+as a deferred detail creates a dependency gap that blocks everything
+downstream.
+
+**Verification**:
+This entry is verified when `impl[T] Option[T] { fn unwrap_or(ref self,
+default: T) -> T { ... } }` compiles, and a program calling
+`Some(42).unwrap_or(0)` produces the correct result via an e2e test.

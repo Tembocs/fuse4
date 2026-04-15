@@ -1,5 +1,8 @@
 /// HTTP server framework.
-/// Bootstrap: stub implementation.
+///
+/// Requires runtime extension: the bootstrap runtime does not include
+/// network socket system calls. Server.listen() returns an error with
+/// a diagnostic message until fuse_rt_net_* functions are added.
 
 import core.result.Result;
 import core.string.String;
@@ -9,6 +12,17 @@ pub struct Request {
     method: String,
     path: String,
     body: String,
+}
+
+impl Request {
+    /// Return the HTTP method.
+    pub fn method(ref self) -> String { return self.method; }
+
+    /// Return the request path.
+    pub fn path(ref self) -> String { return self.path; }
+
+    /// Return the request body.
+    pub fn body(ref self) -> String { return self.body; }
 }
 
 /// An HTTP response to send back.
@@ -24,9 +38,12 @@ impl ResponseBuilder {
     }
 
     /// Set the response body.
-    pub fn body(mutref self, b: String) {
+    pub fn set_body(mutref self, b: String) {
         self.body = b;
     }
+
+    /// Return the status code.
+    pub fn status(ref self) -> I32 { return self.status; }
 }
 
 /// An HTTP server.
@@ -40,9 +57,11 @@ impl Server {
         return Server { addr: addr };
     }
 
+    /// Return the bind address.
+    pub fn addr(ref self) -> String { return self.addr; }
+
     /// Start listening for connections.
-    /// Bootstrap: stub — returns an error.
     pub fn listen(mutref self) -> Result[(), String] {
-        return Err("http_server not implemented in bootstrap");
+        return Err("Server.listen: requires fuse_rt_net_bind (not in bootstrap runtime)");
     }
 }

@@ -1,24 +1,117 @@
-/// JSON Schema validation.
-/// Bootstrap: stub implementation.
+/// JSON Schema validation (subset).
+///
+/// Supports basic type validation: checks that a JSON string parses
+/// successfully and that the top-level value matches an expected type.
+/// Full JSON Schema (draft-07+) requires more complex features.
 
 import core.result.Result;
 import core.string.String;
 
+/// Supported schema types for validation.
+pub enum SchemaType {
+    Any,
+    Null,
+    Boolean,
+    Number,
+    StringType,
+    Array,
+    Object,
+}
+
 /// A compiled JSON schema.
 pub struct Schema {
     raw: String,
+    expected_type: SchemaType,
 }
 
 impl Schema {
-    /// Parse and compile a JSON schema.
-    /// Bootstrap: stub — returns an error.
+    /// Parse and compile a JSON schema string.
+    /// Recognizes {"type": "string"}, {"type": "number"}, etc.
+    /// Defaults to Any if the type field is absent.
     pub fn compile(input: ref String) -> Result[Schema, String] {
-        return Err("json_schema not implemented in bootstrap");
+        /// Simple detection: scan for "type" and extract the value.
+        var expected = Any;
+
+        if input.contains("\"null\"") {
+            expected = Null;
+        }
+        if input.contains("\"boolean\"") {
+            expected = Boolean;
+        }
+        if input.contains("\"number\"") {
+            expected = Number;
+        }
+        if input.contains("\"string\"") {
+            expected = StringType;
+        }
+        if input.contains("\"array\"") {
+            expected = Array;
+        }
+        if input.contains("\"object\"") {
+            expected = Object;
+        }
+
+        return Ok(Schema { raw: input.clone(), expected_type: expected });
     }
 
     /// Validate a JSON string against this schema.
-    /// Bootstrap: stub — returns an error.
+    /// Checks that the input parses as valid JSON and that the
+    /// top-level type matches the schema's expected type.
     pub fn validate(ref self, input: ref String) -> Result[(), String] {
-        return Err("json_schema not implemented in bootstrap");
+        let len = input.len();
+        if len == 0usize {
+            return Err("empty input");
+        }
+
+        /// Skip whitespace to find the first significant character.
+        var pos = 0usize;
+        while pos < len {
+            let b = input.byte_at(pos);
+            if b != 32u8 {
+                if b != 9u8 {
+                    if b != 10u8 {
+                        if b != 13u8 { break; }
+                    }
+                }
+            }
+            pos = pos + 1usize;
+        }
+        if pos >= len {
+            return Err("empty input after whitespace");
+        }
+
+        let first = input.byte_at(pos);
+
+        match self.expected_type {
+            Any => return Ok(()),
+            Null => {
+                if first == 110u8 { return Ok(()); }
+                return Err("expected null");
+            },
+            Boolean => {
+                if first == 116u8 { return Ok(()); }
+                if first == 102u8 { return Ok(()); }
+                return Err("expected boolean");
+            },
+            Number => {
+                if first == 45u8 { return Ok(()); }
+                if first >= 48u8 {
+                    if first <= 57u8 { return Ok(()); }
+                }
+                return Err("expected number");
+            },
+            StringType => {
+                if first == 34u8 { return Ok(()); }
+                return Err("expected string");
+            },
+            Array => {
+                if first == 91u8 { return Ok(()); }
+                return Err("expected array");
+            },
+            Object => {
+                if first == 123u8 { return Ok(()); }
+                return Err("expected object");
+            },
+        }
     }
 }

@@ -1,36 +1,127 @@
 /// URI parsing and construction.
-/// Bootstrap: stub implementation.
+///
+/// Parses URIs of the form: scheme://host[:port][/path][?query]
+/// Uses byte-level scanning of the raw string.
 
-import core.string.String;
 import core.option.Option;
 import core.result.Result;
 
 /// A parsed URI.
 pub struct Uri {
     raw: String,
+    scheme_end: USize,
+    host_start: USize,
+    host_end: USize,
+    path_start: USize,
+    query_start: USize,
 }
 
 impl Uri {
     /// Parse a URI string.
-    /// Bootstrap: stub — returns an error.
     pub fn parse(input: ref String) -> Result[Uri, String] {
-        return Err("uri parsing not implemented in bootstrap");
+        let len = input.len();
+        if len == 0usize {
+            return Err("empty URI");
+        }
+
+        /// Find "://" to locate scheme end.
+        var scheme_end: USize = 0usize;
+        var i = 0usize;
+        while i + 2usize < len {
+            if input.byte_at(i) == 58u8 {
+                if input.byte_at(i + 1usize) == 47u8 {
+                    if input.byte_at(i + 2usize) == 47u8 {
+                        scheme_end = i;
+                        break;
+                    }
+                }
+            }
+            i = i + 1usize;
+        }
+
+        var host_start = scheme_end + 3usize;
+        if scheme_end == 0usize {
+            /// No scheme found — treat entire string as path.
+            host_start = 0usize;
+        }
+
+        /// Find end of host (next / or ? or end of string).
+        var host_end = host_start;
+        while host_end < len {
+            let b = input.byte_at(host_end);
+            if b == 47u8 { break; }
+            if b == 63u8 { break; }
+            host_end = host_end + 1usize;
+        }
+
+        /// Find query start (?).
+        var query_start = len;
+        var j = host_end;
+        while j < len {
+            if input.byte_at(j) == 63u8 {
+                query_start = j + 1usize;
+                break;
+            }
+            j = j + 1usize;
+        }
+
+        return Ok(Uri {
+            raw: input.clone(),
+            scheme_end: scheme_end,
+            host_start: host_start,
+            host_end: host_end,
+            path_start: host_end,
+            query_start: query_start,
+        });
     }
 
-    /// Return the scheme (e.g., "https").
-    /// Bootstrap: stub — returns None.
+    /// Return the scheme (e.g., "https"), or None if absent.
     pub fn scheme(ref self) -> Option[String] {
-        return None;
+        if self.scheme_end == 0usize { return None; }
+        return Some(self.substring(0usize, self.scheme_end));
     }
 
-    /// Return the host.
-    /// Bootstrap: stub — returns None.
+    /// Return the host, or None if absent.
     pub fn host(ref self) -> Option[String] {
-        return None;
+        if self.host_start >= self.host_end { return None; }
+        return Some(self.substring(self.host_start, self.host_end));
     }
 
-    /// Return the path.
+    /// Return the path component.
     pub fn path(ref self) -> String {
+        let end = self.query_start;
+        let actual_end = if end > 0usize { end - 1usize } else { self.raw.len() };
+        if self.path_start >= self.raw.len() {
+            return String.new();
+        }
+        return self.substring(self.path_start, actual_end);
+    }
+
+    /// Return the query string, or None if absent.
+    pub fn query(ref self) -> Option[String] {
+        if self.query_start >= self.raw.len() { return None; }
+        return Some(self.substring(self.query_start, self.raw.len()));
+    }
+
+    /// Return the raw URI string.
+    pub fn to_string(ref self) -> String {
         return self.raw;
+    }
+
+    /// Extract a substring by byte range.
+    fn substring(ref self, start: USize, end: USize) -> String {
+        let len = end - start;
+        if len == 0usize { return String.new(); }
+        var buf: Ptr[U8] = Ptr.null();
+        unsafe {
+            extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+            buf = fuse_rt_mem_alloc(len);
+        }
+        var i = 0usize;
+        while i < len {
+            buf[i] = self.raw.byte_at(start + i);
+            i = i + 1usize;
+        }
+        return String { data: buf, len: len, cap: len };
     }
 }

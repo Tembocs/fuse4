@@ -1,5 +1,8 @@
-/// JSON-RPC 2.0 client and server.
-/// Bootstrap: stub implementation.
+/// JSON-RPC 2.0 client.
+///
+/// Requires runtime extension: JSON-RPC requires HTTP transport which
+/// depends on network sockets not available in the bootstrap runtime.
+/// The call() function returns an error with a diagnostic message.
 
 import core.result.Result;
 import core.string.String;
@@ -10,14 +13,28 @@ pub struct RpcRequest {
     id: I32,
 }
 
+impl RpcRequest {
+    /// Create a new RPC request.
+    pub fn new(method: String, id: I32) -> RpcRequest {
+        return RpcRequest { method: method, id: id };
+    }
+}
+
 /// A JSON-RPC response.
 pub struct RpcResponse {
     id: I32,
     result: String,
 }
 
-/// Send a JSON-RPC request.
-/// Bootstrap: stub — returns an error.
+impl RpcResponse {
+    /// Return the response ID.
+    pub fn id(ref self) -> I32 { return self.id; }
+
+    /// Return the result as a string.
+    pub fn result(ref self) -> String { return self.result; }
+}
+
+/// Send a JSON-RPC request to a URL.
 pub fn call(url: ref String, method: ref String) -> Result[RpcResponse, String] {
-    return Err("jsonrpc not implemented in bootstrap");
+    return Err("jsonrpc.call: requires HTTP transport (not in bootstrap runtime)");
 }

@@ -1,31 +1,246 @@
 /// TOML configuration file parsing.
-/// Bootstrap: stub implementation.
+///
+/// Supports a subset of TOML: top-level key = value pairs where
+/// values can be strings ("..."), integers, or booleans.
+/// Section headers [section] are tracked as key prefixes.
 
 import core.result.Result;
-import core.string.String;
 import core.option.Option;
+import core.list.List;
+
+/// A key-value entry in a TOML document.
+struct TomlEntry {
+    key: String,
+    value: String,
+}
 
 /// A parsed TOML document.
 pub struct TomlDoc {
-    raw: String,
+    entries: List[TomlEntry],
 }
 
 impl TomlDoc {
-    /// Parse a TOML string.
-    /// Bootstrap: stub — returns an error.
+    /// Parse a TOML string into a document.
     pub fn parse(input: ref String) -> Result[TomlDoc, String] {
-        return Err("toml not implemented in bootstrap");
+        var entries = List.new();
+        var section = String.new();
+        let len = input.len();
+        var pos = 0usize;
+
+        while pos < len {
+            /// Skip whitespace.
+            while pos < len {
+                let b = input.byte_at(pos);
+                if b != 32u8 {
+                    if b != 9u8 { break; }
+                }
+                pos = pos + 1usize;
+            }
+            if pos >= len { break; }
+
+            let b = input.byte_at(pos);
+
+            /// Skip comments.
+            if b == 35u8 {
+                while pos < len {
+                    if input.byte_at(pos) == 10u8 { break; }
+                    pos = pos + 1usize;
+                }
+                if pos < len { pos = pos + 1usize; }
+                continue;
+            }
+
+            /// Skip empty lines.
+            if b == 10u8 {
+                pos = pos + 1usize;
+                continue;
+            }
+            if b == 13u8 {
+                pos = pos + 1usize;
+                if pos < len {
+                    if input.byte_at(pos) == 10u8 { pos = pos + 1usize; }
+                }
+                continue;
+            }
+
+            /// Section header [name].
+            if b == 91u8 {
+                pos = pos + 1usize;
+                let sec_start = pos;
+                while pos < len {
+                    if input.byte_at(pos) == 93u8 { break; }
+                    pos = pos + 1usize;
+                }
+                section = substring(ref input, sec_start, pos);
+                if pos < len { pos = pos + 1usize; }
+                /// Skip to end of line.
+                while pos < len {
+                    if input.byte_at(pos) == 10u8 { break; }
+                    pos = pos + 1usize;
+                }
+                if pos < len { pos = pos + 1usize; }
+                continue;
+            }
+
+            /// Key = value pair.
+            let key_start = pos;
+            while pos < len {
+                let kb = input.byte_at(pos);
+                if kb == 61u8 { break; }
+                if kb == 32u8 { break; }
+                if kb == 9u8 { break; }
+                pos = pos + 1usize;
+            }
+            let key_raw = substring(ref input, key_start, pos);
+
+            /// Build full key with section prefix.
+            var full_key = key_raw;
+            if section.len() > 0usize {
+                full_key = section + "." + key_raw;
+            }
+
+            /// Skip whitespace and =.
+            while pos < len {
+                let wb = input.byte_at(pos);
+                if wb != 32u8 {
+                    if wb != 9u8 {
+                        if wb != 61u8 { break; }
+                    }
+                }
+                pos = pos + 1usize;
+            }
+
+            /// Read value.
+            var value = String.new();
+            if pos < len {
+                let vb = input.byte_at(pos);
+                if vb == 34u8 {
+                    /// Quoted string value.
+                    pos = pos + 1usize;
+                    let val_start = pos;
+                    while pos < len {
+                        if input.byte_at(pos) == 34u8 { break; }
+                        pos = pos + 1usize;
+                    }
+                    value = substring(ref input, val_start, pos);
+                    if pos < len { pos = pos + 1usize; }
+                } else {
+                    /// Unquoted value (number or boolean).
+                    let val_start = pos;
+                    while pos < len {
+                        let ub = input.byte_at(pos);
+                        if ub == 10u8 { break; }
+                        if ub == 13u8 { break; }
+                        if ub == 35u8 { break; }
+                        pos = pos + 1usize;
+                    }
+                    /// Trim trailing whitespace.
+                    var val_end = pos;
+                    while val_end > val_start {
+                        let tb = input.byte_at(val_end - 1usize);
+                        if tb != 32u8 {
+                            if tb != 9u8 { break; }
+                        }
+                        val_end = val_end - 1usize;
+                    }
+                    value = substring(ref input, val_start, val_end);
+                }
+            }
+
+            entries.push(TomlEntry { key: full_key, value: value });
+
+            /// Skip to end of line.
+            while pos < len {
+                if input.byte_at(pos) == 10u8 { break; }
+                pos = pos + 1usize;
+            }
+            if pos < len { pos = pos + 1usize; }
+        }
+
+        return Ok(TomlDoc { entries: entries });
     }
 
-    /// Get a string value by key.
-    /// Bootstrap: stub — returns None.
+    /// Get a string value by dotted key (e.g., "section.key").
     pub fn get_string(ref self, key: ref String) -> Option[String] {
+        var i = 0usize;
+        while i < self.entries.len() {
+            match self.entries.get(i) {
+                Some(entry) => {
+                    if entry.key == key {
+                        return Some(entry.value);
+                    }
+                },
+                None => {},
+            }
+            i = i + 1usize;
+        }
         return None;
     }
 
-    /// Get an integer value by key.
-    /// Bootstrap: stub — returns None.
+    /// Get an integer value by dotted key.
     pub fn get_int(ref self, key: ref String) -> Option[I64] {
-        return None;
+        match self.get_string(key) {
+            Some(s) => {
+                return Some(parse_i64(ref s));
+            },
+            None => return None,
+        }
     }
+
+    /// Get a boolean value by dotted key.
+    pub fn get_bool(ref self, key: ref String) -> Option[Bool] {
+        match self.get_string(key) {
+            Some(s) => {
+                if s.len() == 4usize {
+                    if s.byte_at(0usize) == 116u8 { return Some(true); }
+                }
+                if s.len() == 5usize {
+                    if s.byte_at(0usize) == 102u8 { return Some(false); }
+                }
+                return None;
+            },
+            None => return None,
+        }
+    }
+}
+
+/// Parse a string as an I64 (simple decimal parsing).
+fn parse_i64(s: ref String) -> I64 {
+    var result: I64 = 0i64;
+    var sign: I64 = 1i64;
+    var i = 0usize;
+    if s.len() > 0usize {
+        if s.byte_at(0usize) == 45u8 {
+            sign = -1i64;
+            i = 1usize;
+        }
+    }
+    while i < s.len() {
+        let b = s.byte_at(i);
+        if b >= 48u8 {
+            if b <= 57u8 {
+                let digit: I64 = b - 48u8;
+                result = result * 10i64 + digit;
+            }
+        }
+        i = i + 1usize;
+    }
+    return result * sign;
+}
+
+/// Extract a substring by byte range.
+fn substring(s: ref String, start: USize, end: USize) -> String {
+    let len = end - start;
+    if len == 0usize { return String.new(); }
+    var buf: Ptr[U8] = Ptr.null();
+    unsafe {
+        extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+        buf = fuse_rt_mem_alloc(len);
+    }
+    var i = 0usize;
+    while i < len {
+        buf[i] = s.byte_at(start + i);
+        i = i + 1usize;
+    }
+    return String { data: buf, len: len, cap: len };
 }

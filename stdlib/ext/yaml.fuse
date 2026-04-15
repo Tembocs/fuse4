@@ -1,25 +1,163 @@
-/// YAML parsing and serialization.
-/// Bootstrap: stub implementation.
+/// YAML parsing (subset).
+///
+/// Supports a flat key: value format (one level, no nesting).
+/// Keys and values are separated by ": " (colon + space).
+/// Indented blocks and complex YAML features are not supported.
 
 import core.result.Result;
-import core.string.String;
 import core.option.Option;
+import core.list.List;
+
+/// A key-value entry in a YAML document.
+struct YamlEntry {
+    key: String,
+    value: String,
+}
 
 /// A parsed YAML document.
 pub struct YamlDoc {
-    raw: String,
+    entries: List[YamlEntry],
 }
 
 impl YamlDoc {
-    /// Parse a YAML string.
-    /// Bootstrap: stub — returns an error.
+    /// Parse a YAML string (flat key: value pairs).
     pub fn parse(input: ref String) -> Result[YamlDoc, String] {
-        return Err("yaml not implemented in bootstrap");
+        var entries = List.new();
+        let len = input.len();
+        var pos = 0usize;
+
+        while pos < len {
+            /// Skip leading whitespace.
+            while pos < len {
+                let b = input.byte_at(pos);
+                if b != 32u8 {
+                    if b != 9u8 { break; }
+                }
+                pos = pos + 1usize;
+            }
+            if pos >= len { break; }
+
+            /// Skip blank lines and comments.
+            let first = input.byte_at(pos);
+            if first == 10u8 { pos = pos + 1usize; continue; }
+            if first == 13u8 { pos = pos + 1usize; continue; }
+            if first == 35u8 {
+                while pos < len {
+                    if input.byte_at(pos) == 10u8 { break; }
+                    pos = pos + 1usize;
+                }
+                if pos < len { pos = pos + 1usize; }
+                continue;
+            }
+
+            /// Read key up to ':'.
+            let key_start = pos;
+            while pos < len {
+                let b = input.byte_at(pos);
+                if b == 58u8 { break; }
+                if b == 10u8 { break; }
+                pos = pos + 1usize;
+            }
+            if pos >= len { break; }
+            if input.byte_at(pos) != 58u8 {
+                /// No colon found — skip line.
+                while pos < len {
+                    if input.byte_at(pos) == 10u8 { break; }
+                    pos = pos + 1usize;
+                }
+                if pos < len { pos = pos + 1usize; }
+                continue;
+            }
+            let key = substring(ref input, key_start, pos);
+            pos = pos + 1usize; /// skip ':'
+
+            /// Skip space after colon.
+            while pos < len {
+                let b = input.byte_at(pos);
+                if b != 32u8 {
+                    if b != 9u8 { break; }
+                }
+                pos = pos + 1usize;
+            }
+
+            /// Read value to end of line.
+            let val_start = pos;
+            while pos < len {
+                let b = input.byte_at(pos);
+                if b == 10u8 { break; }
+                if b == 13u8 { break; }
+                pos = pos + 1usize;
+            }
+            /// Trim trailing whitespace.
+            var val_end = pos;
+            while val_end > val_start {
+                let tb = input.byte_at(val_end - 1usize);
+                if tb != 32u8 {
+                    if tb != 9u8 { break; }
+                }
+                val_end = val_end - 1usize;
+            }
+            /// Strip quotes if present.
+            var vs = val_start;
+            var ve = val_end;
+            if ve > vs {
+                if input.byte_at(vs) == 34u8 {
+                    if input.byte_at(ve - 1usize) == 34u8 {
+                        vs = vs + 1usize;
+                        ve = ve - 1usize;
+                    }
+                }
+            }
+            let value = substring(ref input, vs, ve);
+            entries.push(YamlEntry { key: key, value: value });
+
+            /// Skip to next line.
+            while pos < len {
+                if input.byte_at(pos) == 10u8 { break; }
+                pos = pos + 1usize;
+            }
+            if pos < len { pos = pos + 1usize; }
+        }
+
+        return Ok(YamlDoc { entries: entries });
     }
 
-    /// Get a string value by key path.
-    /// Bootstrap: stub — returns None.
+    /// Get a string value by key.
     pub fn get_string(ref self, key: ref String) -> Option[String] {
+        var i = 0usize;
+        while i < self.entries.len() {
+            match self.entries.get(i) {
+                Some(entry) => {
+                    if entry.key == key {
+                        return Some(entry.value);
+                    }
+                },
+                None => {},
+            }
+            i = i + 1usize;
+        }
         return None;
     }
+
+    /// Get the number of entries.
+    pub fn len(ref self) -> USize {
+        return self.entries.len();
+    }
+}
+
+/// Extract a substring by byte range.
+fn substring(s: ref String, start: USize, end: USize) -> String {
+    let len = end - start;
+    if len == 0usize { return String.new(); }
+    var buf: Ptr[U8] = Ptr.null();
+    unsafe {
+        extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+        buf = fuse_rt_mem_alloc(len);
+    }
+    var i = 0usize;
+    while i < len {
+        buf[i] = s.byte_at(start + i);
+        i = i + 1usize;
+    }
+    return String { data: buf, len: len, cap: len };
 }

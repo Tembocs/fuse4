@@ -1,8 +1,13 @@
-/// Regular expression matching.
-/// Bootstrap: stub implementation.
+/// Regular expression matching (subset).
+///
+/// Supports a basic regex subset: literal characters, '.' (any byte),
+/// '*' (zero or more of preceding), '+' (one or more of preceding),
+/// '?' (zero or one of preceding), '^' (start anchor), '$' (end anchor).
+///
+/// This is a backtracking matcher suitable for simple patterns.
+/// Complex patterns or pathological inputs may be slow.
 
 import core.result.Result;
-import core.string.String;
 import core.option.Option;
 
 /// A compiled regular expression.
@@ -12,20 +17,215 @@ pub struct Regex {
 
 impl Regex {
     /// Compile a regular expression pattern.
-    /// Bootstrap: stub — returns an error.
     pub fn compile(pattern: ref String) -> Result[Regex, String] {
-        return Err("regex not implemented in bootstrap");
+        return Ok(Regex { pattern: pattern.clone() });
     }
 
-    /// Test if the pattern matches the input.
-    /// Bootstrap: stub — returns false.
+    /// Test if the pattern matches anywhere in the input.
     pub fn is_match(ref self, input: ref String) -> Bool {
+        let plen = self.pattern.len();
+        let ilen = input.len();
+
+        /// Check for start anchor.
+        if plen > 0usize {
+            if self.pattern.byte_at(0usize) == 94u8 {
+                /// ^ anchor: must match at position 0.
+                return match_here(ref self.pattern, 1usize, ref input, 0usize);
+            }
+        }
+
+        /// Try matching at every position.
+        var start = 0usize;
+        while start <= ilen {
+            if match_here(ref self.pattern, 0usize, ref input, start) {
+                return true;
+            }
+            start = start + 1usize;
+        }
         return false;
     }
 
-    /// Find the first match in the input.
-    /// Bootstrap: stub — returns None.
+    /// Find the first match in the input. Returns the matched substring.
     pub fn find(ref self, input: ref String) -> Option[String] {
+        let plen = self.pattern.len();
+        let ilen = input.len();
+
+        var pat_start = 0usize;
+        var anchored = false;
+        if plen > 0usize {
+            if self.pattern.byte_at(0usize) == 94u8 {
+                pat_start = 1usize;
+                anchored = true;
+            }
+        }
+
+        var start = 0usize;
+        let limit = if anchored { 1usize } else { ilen + 1usize };
+        while start < limit {
+            let end = match_end(ref self.pattern, pat_start, ref input, start);
+            if end >= 0 {
+                let end_usize: USize = end;
+                let match_len: USize = end_usize - start;
+                if match_len == 0usize {
+                    if start < ilen {
+                        start = start + 1usize;
+                        continue;
+                    }
+                }
+                var buf: Ptr[U8] = Ptr.null();
+                unsafe {
+                    extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+                    buf = fuse_rt_mem_alloc(match_len);
+                }
+                var i = 0usize;
+                while i < match_len {
+                    buf[i] = input.byte_at(start + i);
+                    i = i + 1usize;
+                }
+                return Some(String { data: buf, len: match_len, cap: match_len });
+            }
+            start = start + 1usize;
+        }
         return None;
     }
+}
+
+/// Try to match pattern[pp..] against input[ip..]. Returns true if matched.
+fn match_here(pattern: ref String, pp: USize, input: ref String, ip: USize) -> Bool {
+    let plen = pattern.len();
+    let ilen = input.len();
+
+    if pp >= plen { return true; }
+
+    /// $ anchor: end of input.
+    if pattern.byte_at(pp) == 36u8 {
+        if pp + 1usize >= plen {
+            return ip == ilen;
+        }
+    }
+
+    /// Check for quantifier after current char.
+    if pp + 1usize < plen {
+        let quant = pattern.byte_at(pp + 1usize);
+        if quant == 42u8 {
+            /// '*' — zero or more.
+            return match_star(pattern.byte_at(pp), ref pattern, pp + 2usize, ref input, ip);
+        }
+        if quant == 43u8 {
+            /// '+' — one or more (must match at least once).
+            if ip < ilen {
+                if match_one(pattern.byte_at(pp), input.byte_at(ip)) {
+                    return match_star(pattern.byte_at(pp), ref pattern, pp + 2usize, ref input, ip + 1usize);
+                }
+            }
+            return false;
+        }
+        if quant == 63u8 {
+            /// '?' — zero or one.
+            if match_here(ref pattern, pp + 2usize, ref input, ip) { return true; }
+            if ip < ilen {
+                if match_one(pattern.byte_at(pp), input.byte_at(ip)) {
+                    return match_here(ref pattern, pp + 2usize, ref input, ip + 1usize);
+                }
+            }
+            return false;
+        }
+    }
+
+    /// Single character match.
+    if ip < ilen {
+        if match_one(pattern.byte_at(pp), input.byte_at(ip)) {
+            return match_here(ref pattern, pp + 1usize, ref input, ip + 1usize);
+        }
+    }
+    return false;
+}
+
+/// Match zero or more of character c, then continue with rest of pattern.
+fn match_star(c: U8, pattern: ref String, pp: USize, input: ref String, ip: USize) -> Bool {
+    let ilen = input.len();
+    var pos = ip;
+    /// Try matching rest of pattern at current position first (greedy).
+    loop {
+        if match_here(ref pattern, pp, ref input, pos) { return true; }
+        if pos >= ilen { break; }
+        if !match_one(c, input.byte_at(pos)) { break; }
+        pos = pos + 1usize;
+    }
+    return false;
+}
+
+/// Check if pattern byte matches input byte.
+/// '.' matches any byte.
+fn match_one(pat: U8, inp: U8) -> Bool {
+    if pat == 46u8 { return true; }
+    return pat == inp;
+}
+
+/// Return the end position of a match, or -1 if no match.
+fn match_end(pattern: ref String, pp: USize, input: ref String, ip: USize) -> I32 {
+    let plen = pattern.len();
+    let ilen = input.len();
+
+    if pp >= plen {
+        let result: I32 = ip;
+        return result;
+    }
+
+    if pattern.byte_at(pp) == 36u8 {
+        if pp + 1usize >= plen {
+            if ip == ilen {
+                let result: I32 = ip;
+                return result;
+            }
+            return -1;
+        }
+    }
+
+    if pp + 1usize < plen {
+        let quant = pattern.byte_at(pp + 1usize);
+        if quant == 42u8 {
+            var pos = ip;
+            loop {
+                let r = match_end(ref pattern, pp + 2usize, ref input, pos);
+                if r >= 0 { return r; }
+                if pos >= ilen { break; }
+                if !match_one(pattern.byte_at(pp), input.byte_at(pos)) { break; }
+                pos = pos + 1usize;
+            }
+            return -1;
+        }
+        if quant == 43u8 {
+            if ip < ilen {
+                if match_one(pattern.byte_at(pp), input.byte_at(ip)) {
+                    var pos = ip + 1usize;
+                    loop {
+                        let r = match_end(ref pattern, pp + 2usize, ref input, pos);
+                        if r >= 0 { return r; }
+                        if pos >= ilen { break; }
+                        if !match_one(pattern.byte_at(pp), input.byte_at(pos)) { break; }
+                        pos = pos + 1usize;
+                    }
+                }
+            }
+            return -1;
+        }
+        if quant == 63u8 {
+            let r = match_end(ref pattern, pp + 2usize, ref input, ip);
+            if r >= 0 { return r; }
+            if ip < ilen {
+                if match_one(pattern.byte_at(pp), input.byte_at(ip)) {
+                    return match_end(ref pattern, pp + 2usize, ref input, ip + 1usize);
+                }
+            }
+            return -1;
+        }
+    }
+
+    if ip < ilen {
+        if match_one(pattern.byte_at(pp), input.byte_at(ip)) {
+            return match_end(ref pattern, pp + 1usize, ref input, ip + 1usize);
+        }
+    }
+    return -1;
 }

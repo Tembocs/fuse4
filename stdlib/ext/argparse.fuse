@@ -1,53 +1,118 @@
 /// Command-line argument parsing.
-/// Bootstrap: stub implementation.
+///
+/// Reads process arguments via the runtime and matches them against
+/// registered positional arguments and flags.
 
 import core.string.String;
 import core.option.Option;
 import core.result.Result;
+import core.list.List;
+
+/// An argument definition.
+struct ArgDef {
+    name: String,
+    is_flag: Bool,
+}
 
 /// An argument parser.
 pub struct ArgParser {
     name: String,
+    defs: List[ArgDef],
 }
 
 impl ArgParser {
     /// Create a new argument parser with the program name.
     pub fn new(name: String) -> ArgParser {
-        return ArgParser { name: name };
+        return ArgParser { name: name, defs: List.new() };
     }
 
     /// Add a required positional argument.
-    /// Bootstrap: stub.
     pub fn add_arg(mutref self, name: String) {
+        self.defs.push(ArgDef { name: name, is_flag: false });
     }
 
     /// Add an optional flag (e.g., --verbose).
-    /// Bootstrap: stub.
     pub fn add_flag(mutref self, name: String) {
+        self.defs.push(ArgDef { name: name, is_flag: true });
     }
 
-    /// Parse command-line arguments.
-    /// Bootstrap: stub — returns an error.
+    /// Parse command-line arguments from the process.
+    /// Positional args are collected in order. Flags start with --.
     pub fn parse(ref self) -> Result[Args, String] {
-        return Err("argparse not implemented in bootstrap");
+        var positionals = List.new();
+        var flags = List.new();
+
+        unsafe {
+            extern fn fuse_rt_proc_argc() -> I32;
+            extern fn fuse_rt_proc_argv(index: I32) -> Ptr[U8];
+
+            let argc = fuse_rt_proc_argc();
+            /// Skip argv[0] (program name).
+            var i = 1;
+            while i < argc {
+                let ptr = fuse_rt_proc_argv(i);
+                if ptr != Ptr.null() {
+                    let arg = String.from_ptr(ptr);
+                    let len = arg.len();
+                    /// Check if it starts with "--"
+                    if len >= 2usize {
+                        if arg.byte_at(0usize) == 45u8 {
+                            if arg.byte_at(1usize) == 45u8 {
+                                /// It's a flag — strip the "--" prefix.
+                                var name_buf: Ptr[U8] = Ptr.null();
+                                let name_len = len - 2usize;
+                                extern fn fuse_rt_mem_alloc(size: USize) -> Ptr[U8];
+                                name_buf = fuse_rt_mem_alloc(name_len);
+                                var j = 0usize;
+                                while j < name_len {
+                                    name_buf[j] = arg.byte_at(j + 2usize);
+                                    j = j + 1usize;
+                                }
+                                flags.push(String { data: name_buf, len: name_len, cap: name_len });
+                                i = i + 1;
+                                continue;
+                            }
+                        }
+                    }
+                    positionals.push(arg);
+                }
+                i = i + 1;
+            }
+        }
+
+        return Ok(Args { positionals: positionals, flags: flags });
     }
 }
 
 /// Parsed arguments.
 pub struct Args {
-    count: I32,
+    positionals: List[String],
+    flags: List[String],
 }
 
 impl Args {
-    /// Get a positional argument by index.
-    /// Bootstrap: stub — returns None.
-    pub fn get(ref self, name: ref String) -> Option[String] {
-        return None;
+    /// Get a positional argument by index (0-based, excludes program name).
+    pub fn get(ref self, index: USize) -> Option[String] {
+        return self.positionals.get(index);
     }
 
-    /// Check if a flag was present.
-    /// Bootstrap: stub — returns false.
+    /// Get the number of positional arguments.
+    pub fn count(ref self) -> USize {
+        return self.positionals.len();
+    }
+
+    /// Check if a flag was present (by name, without the "--" prefix).
     pub fn has_flag(ref self, name: ref String) -> Bool {
+        var i = 0usize;
+        while i < self.flags.len() {
+            match self.flags.get(i) {
+                Some(f) => {
+                    if f == name { return true; }
+                },
+                None => {},
+            }
+            i = i + 1usize;
+        }
         return false;
     }
 }

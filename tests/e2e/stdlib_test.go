@@ -199,6 +199,9 @@ func TestStdlibExtCompiles(t *testing.T) {
 		"stdlib/core/string.fuse":    "core.string",
 		"stdlib/core/traits.fuse":    "core.traits",
 		"stdlib/core/equatable.fuse": "core.equatable",
+		"stdlib/core/list.fuse":      "core.list",
+		"stdlib/core/map.fuse":       "core.map",
+		"stdlib/core/hash.fuse":      "core.hash",
 	}
 	coreFiles := map[string]*ast.File{}
 	for path, modName := range coreDeps {

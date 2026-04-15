@@ -660,6 +660,18 @@ fn main() -> I32 { return classify(42); }`,
 		WantExit: 42,
 	},
 
+	// ===== Wave 19: String concatenation =====
+	{
+		Name: "w19_string_concat",
+		Source: `fn main() -> I32 {
+	let s = "hello" + " world";
+	println(s);
+	return 0;
+}`,
+		WantExit:   0,
+		WantStdout: "hello world",
+	},
+
 	// ===== Wave 18: Trait default methods =====
 	{
 		Name: "w18_trait_default_method",

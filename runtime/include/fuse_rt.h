@@ -109,6 +109,14 @@ void          fuse_rt_cond_signal(fuse_rt_cond *c);
 void          fuse_rt_cond_broadcast(fuse_rt_cond *c);
 void          fuse_rt_cond_destroy(fuse_rt_cond *c);
 
+/* ===== String operations ===== */
+
+/* Concatenate two byte buffers into a new heap-allocated buffer.
+ * Writes result data pointer to *out_data, total length to *out_len. */
+void fuse_rt_string_concat(const uint8_t *a, size_t a_len,
+                            const uint8_t *b, size_t b_len,
+                            uint8_t **out_data, size_t *out_len);
+
 /* ===== Runtime initialization ===== */
 
 /* Initialize the runtime. Called once before main. */

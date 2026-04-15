@@ -178,8 +178,57 @@ func (l *Lowerer) lowerIdent(n *hir.IdentExpr) mir.LocalId {
 func (l *Lowerer) lowerBinary(n *hir.BinaryExpr) mir.LocalId {
 	left := l.lowerExpr(n.Left)
 	right := l.lowerExpr(n.Right)
+
+	// String + String → fuse_rt_string_concat(a.data, a.len, b.data, b.len)
+	if n.Op == "+" {
+		leftType := n.Left.Meta().Type
+		te := l.Types.Get(leftType)
+		if te.Kind == typetable.KindStruct && te.Name == "String" {
+			return l.lowerStringConcat(left, right, n.Meta().Type)
+		}
+	}
+
 	dest := l.b.NewTemp(n.Meta().Type)
 	l.b.EmitBinOp(dest, n.Op, left, right, n.Meta().Type)
+	return dest
+}
+
+func (l *Lowerer) lowerStringConcat(left, right mir.LocalId, resultType typetable.TypeId) mir.LocalId {
+	ptrTy := l.Types.InternPtr(l.Types.U8)
+	ptrPtrTy := l.Types.InternPtr(ptrTy)
+	ptrUSize := l.Types.InternPtr(l.Types.USize)
+
+	// Extract left.data and left.len
+	lData := l.b.NewTemp(ptrTy)
+	l.b.EmitFieldRead(lData, left, "data", ptrTy)
+	lLen := l.b.NewTemp(l.Types.USize)
+	l.b.EmitFieldRead(lLen, left, "len", l.Types.USize)
+
+	// Extract right.data and right.len
+	rData := l.b.NewTemp(ptrTy)
+	l.b.EmitFieldRead(rData, right, "data", ptrTy)
+	rLen := l.b.NewTemp(l.Types.USize)
+	l.b.EmitFieldRead(rLen, right, "len", l.Types.USize)
+
+	// Create out-param locals for the result
+	outData := l.b.NewLocal("__concat_data", ptrTy)
+	outLen := l.b.NewLocal("__concat_len", l.Types.USize)
+
+	// Get addresses of out-params
+	outDataPtr := l.b.NewTemp(ptrPtrTy)
+	l.b.EmitBorrow(outDataPtr, outData, ptrPtrTy, mir.BorrowMutable)
+	outLenPtr := l.b.NewTemp(ptrUSize)
+	l.b.EmitBorrow(outLenPtr, outLen, ptrUSize, mir.BorrowMutable)
+
+	// Call fuse_rt_string_concat(a_data, a_len, b_data, b_len, &out_data, &out_len)
+	callee := l.b.NewTemp(l.Types.Unknown)
+	l.b.EmitConst(callee, l.Types.Unknown, "fuse_rt_string_concat")
+	callDest := l.b.NewTemp(l.Types.Unit)
+	l.b.EmitCall(callDest, callee, []mir.LocalId{lData, lLen, rData, rLen, outDataPtr, outLenPtr}, l.Types.Unit, false)
+
+	// Build result String struct from out-params
+	dest := l.b.NewTemp(resultType)
+	l.b.EmitStructInit(dest, "String", []mir.LocalId{outData, outLen, outLen}, resultType)
 	return dest
 }
 

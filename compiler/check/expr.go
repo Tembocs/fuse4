@@ -201,6 +201,11 @@ func (c *Checker) checkBinary(e *ast.BinaryExpr) typetable.TypeId {
 			c.errorf(e.Span, "cannot apply %s between %s and %s",
 				e.Op.Literal, c.Types.Get(lt).Name, c.Types.Get(rt).Name)
 		}
+		// String + String → String concatenation.
+		lte := c.Types.Get(lt)
+		if e.Op.Kind == lex.Plus && lte.Kind == typetable.KindStruct && lte.Name == "String" {
+			return lt
+		}
 		return lt
 
 	case lex.Amp, lex.Pipe, lex.Caret, lex.Shl, lex.Shr:

@@ -21,12 +21,12 @@
 
 ## 2. Codegen: String Concatenation
 
-- [ ] **2a.** Register `+` operator on String type in the checker (returns String)
-- [ ] **2b.** Lowerer: lower `String + String` to a runtime call `fuse_rt_string_concat(a, b)`
-- [ ] **2c.** Runtime: add `fuse_rt_string_concat(a_data, a_len, b_data, b_len)` to `runtime/src/mem.c` or new `runtime/src/string.c`
-- [ ] **2d.** Runtime: add `fuse_rt_string_concat` declaration to `runtime/include/fuse_rt.h`
-- [ ] **2e.** Rebuild runtime library (`make runtime`)
-- [ ] **2f.** E2e proof: `"hello" + " world"` produces `"hello world"` in println output
+- [x] **2a.** Register `+` operator on String type in the checker (returns String)
+- [x] **2b.** Lowerer: lower `String + String` to runtime call with out-params, construct String struct from results
+- [x] **2c.** Runtime: add `fuse_rt_string_concat` in new `runtime/src/string.c` (out-param style)
+- [x] **2d.** Runtime: add `fuse_rt_string_concat` declaration to `runtime/include/fuse_rt.h`
+- [x] **2e.** Rebuild runtime library (`make runtime`)
+- [x] **2f.** E2e proof: `"hello" + " world"` produces `"hello world"` in println output
 
 ## 3. Codegen: Self Type Resolution
 

@@ -6,7 +6,7 @@ CC := gcc
 endif
 RT_SRC = runtime/src/mem.c runtime/src/panic.c runtime/src/io.c \
          runtime/src/proc.c runtime/src/time.c runtime/src/thread.c \
-         runtime/src/sync.c
+         runtime/src/sync.c runtime/src/string.c
 RT_INC = -Iruntime/include
 RT_OUT = runtime/libfuse_rt.a
 
@@ -32,6 +32,8 @@ $(RT_OUT): $(RT_SRC) runtime/include/fuse_rt.h
 		runtime/src/thread.c -o runtime/src/thread.o
 	$(CC) -c $(RT_INC) -std=c11 -Wall -Wextra -pedantic -O2 \
 		runtime/src/sync.c -o runtime/src/sync.o
+	$(CC) -c $(RT_INC) -std=c11 -Wall -Wextra -pedantic -O2 \
+		runtime/src/string.c -o runtime/src/string.o
 	ar rcs $(RT_OUT) runtime/src/*.o
 
 runtime-test: $(RT_OUT)

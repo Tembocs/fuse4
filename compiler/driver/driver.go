@@ -121,6 +121,9 @@ func Build(opts BuildOptions) *BuildResult {
 	}
 	result.Errors = append(result.Errors, lowerer.Errors...)
 
+	// Include lifted closure functions in the MIR output.
+	mirFunctions = append(mirFunctions, lowerer.LiftedFunctions...)
+
 	// Phase 5: Codegen — emit via selected backend.
 	backendTarget := opts.Backend
 	if backendTarget == "" {

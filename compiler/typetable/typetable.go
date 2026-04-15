@@ -85,8 +85,11 @@ type TypeEntry struct {
 	// ArrayLen is the static length for array types.
 	ArrayLen int
 
-	// Fields holds TypeIds for tuple elements or function param types.
+	// Fields holds TypeIds for tuple elements, function param types, or struct/enum fields.
 	Fields []TypeId
+
+	// FieldNames holds the declared field names for struct types (parallel to Fields).
+	FieldNames []string
 
 	// ReturnType is the return type for function types.
 	ReturnType TypeId
@@ -264,6 +267,15 @@ func (tt *TypeTable) InternEnum(module, name string, typeArgs []TypeId) TypeId {
 func (tt *TypeTable) SetEnumFields(id TypeId, fields []TypeId) {
 	if int(id) < len(tt.entries) {
 		tt.entries[id].Fields = fields
+	}
+}
+
+// SetStructFields sets the named field info on an existing struct type entry.
+// FieldNames and Fields must have the same length.
+func (tt *TypeTable) SetStructFields(id TypeId, names []string, types []TypeId) {
+	if int(id) < len(tt.entries) {
+		tt.entries[id].Fields = types
+		tt.entries[id].FieldNames = names
 	}
 }
 

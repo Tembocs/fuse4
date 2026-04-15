@@ -324,6 +324,77 @@ fn main() -> I32 {
 		WantExit: 42,
 	},
 
+	// ===== Wave 18 Phase 01: Core Expression Completeness =====
+	{
+		Name:     "w18_tuple_construction",
+		Source:   `fn main() -> I32 { let p = (10, 32); return p.0 + p.1; }`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_struct_init_and_field_access",
+		Source: `struct Point { x: I32, y: I32 }
+fn main() -> I32 {
+	let p = Point { x: 19, y: 23 };
+	return p.x + p.y;
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_ownership_ref",
+		Source: `fn inc(x: ref I32) -> I32 { return x + 1; }
+fn main() -> I32 {
+	let v = 41;
+	return inc(ref v);
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_ownership_mutref",
+		Source: `fn set_val(x: mutref I32, v: I32) { x = v; }
+fn main() -> I32 {
+	var n = 0;
+	set_val(mutref n, 42);
+	return n;
+}`,
+		WantExit: 42,
+	},
+	{
+		Name:     "w18_loop_break_value",
+		Source:   `fn main() -> I32 { let x = loop { break 42; }; return x; }`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_const_declaration",
+		Source: `const N: I32 = 42;
+fn main() -> I32 { return N; }`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_type_alias",
+		Source: `type Score = I32;
+fn main() -> Score { return 42; }`,
+		WantExit: 42,
+	},
+
+	// ===== Wave 18 Phase 02: Closures =====
+	{
+		Name: "w18_closure_no_capture",
+		Source: `fn main() -> I32 {
+	let f = fn(x: I32) -> I32 { return x + 1; };
+	return f(41);
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_closure_with_capture",
+		Source: `fn main() -> I32 {
+	let offset = 10;
+	let f = fn(x: I32) -> I32 { return x + offset; };
+	return f(32);
+}`,
+		WantExit: 42,
+	},
+
 	// ===== Compilation Errors =====
 	{
 		Name:      "parse_error",

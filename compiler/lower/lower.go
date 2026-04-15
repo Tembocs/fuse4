@@ -22,6 +22,11 @@ type Lowerer struct {
 
 	// LiftedFunctions holds closure bodies that were lifted to standalone functions.
 	LiftedFunctions []*mir.Function
+
+	// closureEnvs maps a closure reference local to its environment struct local.
+	closureEnvs map[mir.LocalId]mir.LocalId
+	// closureFns maps a closure reference local to its lifted function name.
+	closureFns map[mir.LocalId]string
 }
 
 type loopCtx struct {
@@ -44,6 +49,8 @@ func (l *Lowerer) LowerFunction(fn *hir.Function) *mir.Function {
 
 	l.b = mir.NewBuilder(fn.Name, params, fn.ReturnType)
 	l.vars = make(map[string]mir.LocalId)
+	l.closureEnvs = make(map[mir.LocalId]mir.LocalId)
+	l.closureFns = make(map[mir.LocalId]string)
 
 	// Register params in var map.
 	for i, p := range fn.Params {
@@ -223,6 +230,23 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 	// Direct function call: emit callee name as a const reference.
 	var callee mir.LocalId
 	if ident, ok := n.Callee.(*hir.IdentExpr); ok {
+		// Check if this ident refers to a local that holds a closure reference.
+		if localId, isLocal := l.vars[ident.Name]; isLocal {
+			if fnName, isClosure := l.closureFns[localId]; isClosure {
+				// Closure call: use the lifted function name and prepend env arg.
+				callee = l.b.NewTemp(l.Types.Unknown)
+				l.b.EmitConst(callee, l.Types.Unknown, fnName)
+				var args []mir.LocalId
+				if envId, hasEnv := l.closureEnvs[localId]; hasEnv {
+					args = append(args, envId)
+				}
+				for _, a := range n.Args {
+					args = append(args, l.lowerExpr(a))
+				}
+				l.b.EmitCall(dest, callee, args, n.Meta().Type, false)
+				return dest
+			}
+		}
 		// Direct call by name — emit the mangled function name.
 		callee = l.b.NewTemp(l.Types.Unknown)
 		mangledName := ident.Name
@@ -309,6 +333,14 @@ func (l *Lowerer) lowerStmt(s hir.Stmt) {
 		if n.Value != nil {
 			val := l.lowerExpr(n.Value)
 			l.b.EmitCopy(local, val, n.Type)
+			// Propagate closure metadata: if the value is a closure reference,
+			// map the let binding's local to the same closure info.
+			if fnName, ok := l.closureFns[val]; ok {
+				l.closureFns[local] = fnName
+				if envId, hasEnv := l.closureEnvs[val]; hasEnv {
+					l.closureEnvs[local] = envId
+				}
+			}
 		}
 		if n.Meta().DestroyEnd {
 			l.b.EmitDrop(local)
@@ -529,7 +561,7 @@ func (l *Lowerer) lowerBreak(n *hir.BreakExpr) mir.LocalId {
 	ctx := l.loops[len(l.loops)-1]
 	if n.Value != nil {
 		val := l.lowerExpr(n.Value)
-		l.b.EmitCopy(ctx.BreakLocal, val, l.Types.Unknown)
+		l.b.EmitCopy(ctx.BreakLocal, val, n.Value.Meta().Type)
 	}
 	l.b.TermGoto(ctx.BreakBlock)
 	return l.constUnit()
@@ -592,15 +624,32 @@ func (l *Lowerer) lowerClosure(n *hir.ClosureExpr) mir.LocalId {
 	// The lifted function takes an env parameter followed by the closure's own params.
 	envType := l.Types.InternStruct("__closure", fmt.Sprintf("env_%d", len(l.LiftedFunctions)), nil)
 
+	// Set the env struct fields so codegen can emit its definition.
+	if len(captures) > 0 {
+		var capNames []string
+		var capTypes []typetable.TypeId
+		for i, cap := range captures {
+			capNames = append(capNames, fmt.Sprintf("_c%d", i))
+			capTypes = append(capTypes, cap.Type)
+		}
+		l.Types.SetStructFields(envType, capNames, capTypes)
+	}
+
 	var liftedParams []mir.Local
-	// First param: environment struct.
-	liftedParams = append(liftedParams, mir.Local{
-		Id: 0, Name: "__env", Type: envType,
-	})
+	// Only add env param if the closure actually captures variables.
+	if len(captures) > 0 {
+		liftedParams = append(liftedParams, mir.Local{
+			Id: 0, Name: "__env", Type: envType,
+		})
+	}
 	// Then the closure's declared params.
 	for i, p := range n.Params {
+		paramId := mir.LocalId(i)
+		if len(captures) > 0 {
+			paramId = mir.LocalId(i + 1)
+		}
 		liftedParams = append(liftedParams, mir.Local{
-			Id: mir.LocalId(i + 1), Name: p.Name, Type: p.Type,
+			Id: paramId, Name: p.Name, Type: p.Type,
 		})
 	}
 
@@ -617,17 +666,22 @@ func (l *Lowerer) lowerClosure(n *hir.ClosureExpr) mir.LocalId {
 		vars:  make(map[string]mir.LocalId),
 	}
 
-	// Register env param and closure params in the child's var map.
-	envLocal := mir.LocalId(0)
-	for i, p := range n.Params {
-		childLowerer.vars[p.Name] = mir.LocalId(i + 1)
-	}
-
-	// Register captured variables — read from env struct fields.
-	for i, cap := range captures {
-		dest := childLowerer.b.NewLocal(cap.Name, cap.Type)
-		childLowerer.vars[cap.Name] = dest
-		childLowerer.b.EmitFieldRead(dest, envLocal, fmt.Sprintf("_c%d", i), cap.Type)
+	// Register params in the child's var map.
+	if len(captures) > 0 {
+		envLocal := mir.LocalId(0)
+		for i, p := range n.Params {
+			childLowerer.vars[p.Name] = mir.LocalId(i + 1)
+		}
+		// Register captured variables — read from env struct fields.
+		for i, cap := range captures {
+			dest := childLowerer.b.NewLocal(cap.Name, cap.Type)
+			childLowerer.vars[cap.Name] = dest
+			childLowerer.b.EmitFieldRead(dest, envLocal, fmt.Sprintf("_c%d", i), cap.Type)
+		}
+	} else {
+		for i, p := range n.Params {
+			childLowerer.vars[p.Name] = mir.LocalId(i)
+		}
 	}
 
 	// Lower the closure body in the child lowerer.
@@ -641,25 +695,41 @@ func (l *Lowerer) lowerClosure(n *hir.ClosureExpr) mir.LocalId {
 	liftedFn := liftedBuilder.Build()
 	l.LiftedFunctions = append(l.LiftedFunctions, liftedFn)
 
-	// Phase 3: At the closure expression site, emit environment struct init.
-	envDest := l.b.NewTemp(envType)
-	var captureLocals []mir.LocalId
-	for _, cap := range captures {
-		if id, ok := l.vars[cap.Name]; ok {
-			captureLocals = append(captureLocals, id)
-		} else {
-			// Captured variable not in scope — emit a zero.
-			tmp := l.b.NewTemp(cap.Type)
-			l.b.EmitConst(tmp, cap.Type, "0")
-			captureLocals = append(captureLocals, tmp)
-		}
-	}
-	l.b.EmitStructInit(envDest, fmt.Sprintf("env_%d", len(l.LiftedFunctions)-1), captureLocals, envType)
+	// Phase 3: At the closure expression site, emit a reference to the lifted function.
+	// For closures without captures, we just emit the function name as a const.
+	// For closures with captures, we build the env struct and pass it as the first arg
+	// at the call site (handled by lowerCall when it detects a closure callee).
+	liftedName := liftedFn.Name
 
-	// Return the environment as the closure representation.
-	// (A full implementation would pair env with the function pointer,
-	// but for now the env serves as the closure value.)
-	return envDest
+	if len(captures) > 0 {
+		// Build the environment struct at the closure site.
+		envDest := l.b.NewTemp(envType)
+		var captureLocals []mir.LocalId
+		for _, cap := range captures {
+			if id, ok := l.vars[cap.Name]; ok {
+				captureLocals = append(captureLocals, id)
+			} else {
+				tmp := l.b.NewTemp(cap.Type)
+				l.b.EmitConst(tmp, cap.Type, "0")
+				captureLocals = append(captureLocals, tmp)
+			}
+		}
+		l.b.EmitStructInit(envDest, fmt.Sprintf("env_%d", len(l.LiftedFunctions)-1), captureLocals, envType)
+
+		// Store the lifted function name and env local for later call rewriting.
+		fnRef := l.b.NewTemp(n.Meta().Type)
+		l.b.EmitConst(fnRef, n.Meta().Type, "Fuse_"+liftedName)
+		// Record env local for this closure so lowerCall can prepend it.
+		l.closureEnvs[fnRef] = envDest
+		l.closureFns[fnRef] = "Fuse_" + liftedName
+		return fnRef
+	}
+
+	// No captures: just emit a reference to the lifted function.
+	fnRef := l.b.NewTemp(n.Meta().Type)
+	l.b.EmitConst(fnRef, n.Meta().Type, "Fuse_"+liftedName)
+	l.closureFns[fnRef] = "Fuse_" + liftedName
+	return fnRef
 }
 
 // capturedVar tracks a variable captured by a closure.

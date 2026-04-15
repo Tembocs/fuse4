@@ -15,10 +15,11 @@ type Emitter struct {
 	Errors    []diagnostics.Diagnostic
 	DropTypes map[typetable.TypeId]bool // types with Drop trait implementations
 
-	out        strings.Builder
-	indent     int
-	emitted    map[typetable.TypeId]bool   // types already emitted
-	constNames map[mir.LocalId]string       // locals assigned a const function name
+	out          strings.Builder
+	indent       int
+	emitted      map[typetable.TypeId]bool   // types already emitted
+	constNames   map[mir.LocalId]string       // locals assigned a const function name
+	borrowLocals map[mir.LocalId]bool         // locals with ref/mutref type (auto-deref)
 }
 
 // NewEmitter creates an emitter for the given type table.
@@ -39,6 +40,8 @@ func (e *Emitter) Emit(functions []*mir.Function) string {
 	e.writeln("#include <stdbool.h>")
 	e.writeln("#include <stddef.h>")
 	e.writeln("#include \"fuse_rt.h\"")
+	e.writeln("")
+	e.writeln("typedef void* FuseFunc;")
 	e.writeln("")
 
 	// Phase 1: collect and emit all composite type definitions before functions.
@@ -85,8 +88,30 @@ func (e *Emitter) emitTypeDefIfNeeded(id typetable.TypeId) {
 	switch te.Kind {
 	case typetable.KindStruct:
 		e.emitted[id] = true
+		// Emit field types first.
+		for _, ft := range te.Fields {
+			e.emitTypeDefIfNeeded(ft)
+		}
 		name := MangleType(e.Types, id)
-		e.writef("typedef struct %s %s;", name, name)
+		if len(te.FieldNames) > 0 {
+			// Struct with known fields: emit full definition.
+			e.writef("typedef struct %s {", name)
+			for i, ft := range te.Fields {
+				fieldName := te.FieldNames[i]
+				e.writef(" %s %s;", MangleType(e.Types, ft), SanitizeIdent(fieldName))
+			}
+			e.writef(" } %s;", name)
+		} else if len(te.Fields) > 0 {
+			// Struct with typed fields but no names (e.g. closure env).
+			e.writef("typedef struct %s {", name)
+			for i, ft := range te.Fields {
+				e.writef(" %s _f%d;", MangleType(e.Types, ft), i)
+			}
+			e.writef(" } %s;", name)
+		} else {
+			// Forward declaration only (opaque struct).
+			e.writef("typedef struct %s %s;", name, name)
+		}
 		e.writeln("")
 	case typetable.KindEnum:
 		e.emitted[id] = true
@@ -166,6 +191,14 @@ func (e *Emitter) calleeName(id mir.LocalId) string {
 
 func (e *Emitter) emitFunction(fn *mir.Function) {
 	e.constNames = make(map[mir.LocalId]string)
+	// Track which locals have borrow (ref/mutref) types for auto-deref.
+	e.borrowLocals = make(map[mir.LocalId]bool)
+	for _, l := range fn.Locals {
+		te := e.Types.Get(l.Type)
+		if te.Kind == typetable.KindRef || te.Kind == typetable.KindMutRef {
+			e.borrowLocals[l.Id] = true
+		}
+	}
 	retC := e.returnTypeC(fn.ReturnType)
 	nameC := MangleName("", fn.Name)
 	paramsC := e.paramsC(fn.Params)
@@ -237,7 +270,12 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 			return
 		}
 		e.writeIndent()
-		e.writef("%s = %s;", dest, e.localName(instr.Src))
+		// When copying into a borrow local, dereference the destination.
+		destExpr := dest
+		if e.borrowLocals != nil && e.borrowLocals[instr.Dest] {
+			destExpr = "(*" + dest + ")"
+		}
+		e.writef("%s = %s;", destExpr, e.localValue(instr.Src))
 		e.writeln("")
 
 	case mir.InstrMove:
@@ -245,7 +283,7 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 			return
 		}
 		e.writeIndent()
-		e.writef("%s = %s; /* move */", dest, e.localName(instr.Src))
+		e.writef("%s = %s; /* move */", dest, e.localValue(instr.Src))
 		e.writeln("")
 
 	case mir.InstrBorrow:
@@ -285,27 +323,27 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 
 	case mir.InstrFieldRead:
 		e.writeIndent()
-		e.writef("%s = %s.%s;", dest, e.localName(instr.Src), SanitizeIdent(instr.Field))
+		e.writef("%s = %s.%s;", dest, e.localValue(instr.Src), SanitizeIdent(instr.Field))
 		e.writeln("")
 
 	case mir.InstrFieldAddr:
 		e.writeIndent()
-		e.writef("%s = &%s.%s;", dest, e.localName(instr.Src), SanitizeIdent(instr.Field))
+		e.writef("%s = &%s.%s;", dest, e.localValue(instr.Src), SanitizeIdent(instr.Field))
 		e.writeln("")
 
 	case mir.InstrIndex:
 		e.writeIndent()
-		e.writef("%s = %s.data[%s];", dest, e.localName(instr.Src), e.localName(instr.Src2))
+		e.writef("%s = %s.data[%s];", dest, e.localValue(instr.Src), e.localValue(instr.Src2))
 		e.writeln("")
 
 	case mir.InstrBinOp:
 		e.writeIndent()
-		e.writef("%s = %s %s %s;", dest, e.localName(instr.Src), instr.Op, e.localName(instr.Src2))
+		e.writef("%s = %s %s %s;", dest, e.localValue(instr.Src), instr.Op, e.localValue(instr.Src2))
 		e.writeln("")
 
 	case mir.InstrUnaryOp:
 		e.writeIndent()
-		e.writef("%s = %s%s;", dest, instr.Op, e.localName(instr.Src))
+		e.writef("%s = %s%s;", dest, instr.Op, e.localValue(instr.Src))
 		e.writeln("")
 
 	case mir.InstrTuple:
@@ -329,9 +367,15 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 			// Contract 5: aggregate fallback is typed zero-initializer, not scalar 0.
 			e.writef("%s = (%s){0};", dest, ty)
 		} else {
+			// Use named field initializers if the type has named fields.
+			te := e.Types.Get(instr.Type)
 			fields := make([]string, len(instr.Args))
 			for i, a := range instr.Args {
-				fields[i] = e.localName(a)
+				if i < len(te.FieldNames) && te.FieldNames[i] != "" {
+					fields[i] = fmt.Sprintf(".%s = %s", SanitizeIdent(te.FieldNames[i]), e.localName(a))
+				} else {
+					fields[i] = e.localName(a)
+				}
 			}
 			e.writef("%s = (%s){%s};", dest, ty, strings.Join(fields, ", "))
 		}
@@ -361,7 +405,7 @@ func (e *Emitter) emitTerminator(fn *mir.Function, term *mir.Terminator) {
 			e.writeln("return;")
 		} else {
 			e.writeIndent()
-			e.writef("return %s;", e.localName(term.Value))
+			e.writef("return %s;", e.localValue(term.Value))
 			e.writeln("")
 		}
 
@@ -373,7 +417,7 @@ func (e *Emitter) emitTerminator(fn *mir.Function, term *mir.Terminator) {
 	case mir.TermBranch:
 		e.writeIndent()
 		e.writef("if (%s) goto block_%d; else goto block_%d;",
-			e.localName(term.Value), term.Target, term.ElseTarget)
+			e.localValue(term.Value), term.Target, term.ElseTarget)
 		e.writeln("")
 
 	case mir.TermDiverge:
@@ -394,6 +438,16 @@ func (e *Emitter) isUnit(id typetable.TypeId) bool {
 
 func (e *Emitter) localName(id mir.LocalId) string {
 	return fmt.Sprintf("_l%d", id)
+}
+
+// localValue returns the C expression for reading a local's value.
+// For borrow (ref/mutref) locals, it dereferences the pointer.
+func (e *Emitter) localValue(id mir.LocalId) string {
+	name := fmt.Sprintf("_l%d", id)
+	if e.borrowLocals != nil && e.borrowLocals[id] {
+		return "(*" + name + ")"
+	}
+	return name
 }
 
 func (e *Emitter) returnTypeC(id typetable.TypeId) string {
@@ -422,6 +476,7 @@ func (e *Emitter) paramsC(params []mir.Local) string {
 func (e *Emitter) argsC(args []mir.LocalId) string {
 	parts := make([]string, len(args))
 	for i, a := range args {
+		// Don't auto-deref function arguments — pass pointers as-is.
 		parts[i] = e.localName(a)
 	}
 	return strings.Join(parts, ", ")

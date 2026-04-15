@@ -788,20 +788,17 @@ func TestClosureWithNoCaptures(t *testing.T) {
 		t.Fatalf("expected 1 lifted function, got %d", len(l.LiftedFunctions))
 	}
 
-	// The env struct init should have zero captured fields.
-	foundEnvInit := false
+	// For non-capturing closures, no env struct is emitted — just a function reference.
+	foundFnRef := false
 	for _, blk := range mf.Blocks {
 		for _, instr := range blk.Instrs {
-			if instr.Kind == mir.InstrStructInit && instr.Field == "env_0" {
-				foundEnvInit = true
-				if len(instr.Args) != 0 {
-					t.Errorf("env struct init for no-capture closure should have 0 fields, got %d", len(instr.Args))
-				}
+			if instr.Kind == mir.InstrConst && len(instr.Value) > 0 && instr.Value[:5] == "Fuse_" {
+				foundFnRef = true
 			}
 		}
 	}
-	if !foundEnvInit {
-		t.Error("closure should emit InstrStructInit for env even with no captures")
+	if !foundFnRef {
+		t.Error("non-capturing closure should emit a function reference const")
 	}
 }
 

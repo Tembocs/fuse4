@@ -186,6 +186,13 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 		return a.b.Literal(e.Span, e.Token.Literal, a.typeOf(e))
 
 	case *ast.IdentExpr:
+		// Inline const values: if the ident refers to a const with a known literal,
+		// emit it as a literal instead of an ident reference.
+		if a.checker != nil {
+			if lit, ok := a.checker.ConstLiterals[e.Name]; ok {
+				return a.b.Literal(e.Span, lit, a.typeOf(e))
+			}
+		}
 		return a.b.Ident(e.Span, e.Name, a.typeOf(e))
 
 	case *ast.BinaryExpr:

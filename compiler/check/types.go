@@ -2,6 +2,7 @@ package check
 
 import (
 	"github.com/Tembocs/fuse4/compiler/ast"
+	"github.com/Tembocs/fuse4/compiler/lex"
 	"github.com/Tembocs/fuse4/compiler/resolve"
 	"github.com/Tembocs/fuse4/compiler/typetable"
 )
@@ -47,6 +48,11 @@ func (c *Checker) resolvePathType(pt *ast.PathType) typetable.TypeId {
 		return prim
 	}
 
+	// Check type aliases.
+	if alias, ok := c.typeAliases[name]; ok {
+		return alias
+	}
+
 	// Resolve type args.
 	var typeArgs []typetable.TypeId
 	for _, arg := range pt.TypeArgs {
@@ -82,11 +88,19 @@ func (c *Checker) resolveTypeExprOr(te ast.TypeExpr, fallback typetable.TypeId) 
 	return c.resolveTypeExpr(te)
 }
 
-// resolveParamTypes resolves the types of a parameter list.
+// resolveParamTypes resolves the types of a parameter list, wrapping
+// with Ref/MutRef when the parameter has an ownership qualifier.
 func (c *Checker) resolveParamTypes(params []ast.Param) []typetable.TypeId {
 	types := make([]typetable.TypeId, len(params))
 	for i, p := range params {
-		types[i] = c.resolveTypeExprOr(p.Type, c.Types.Unknown)
+		ty := c.resolveTypeExprOr(p.Type, c.Types.Unknown)
+		switch p.Ownership {
+		case lex.KwRef:
+			ty = c.Types.InternRef(ty)
+		case lex.KwMutref:
+			ty = c.Types.InternMutRef(ty)
+		}
+		types[i] = ty
 	}
 	return types
 }

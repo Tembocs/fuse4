@@ -135,6 +135,10 @@ func (c *Checker) checkIdent(e *ast.IdentExpr) typetable.TypeId {
 			return c.symbolType(sym)
 		}
 	}
+	// Lookup as constant.
+	if ty, ok := c.constValues[e.Name]; ok {
+		return ty
+	}
 	// Lookup as primitive constructor (Ok, Err, Some, None).
 	if prim := c.Types.LookupPrimitive(e.Name); prim != typetable.InvalidTypeId {
 		return prim
@@ -595,7 +599,29 @@ func (c *Checker) checkWhile(e *ast.WhileExpr) typetable.TypeId {
 
 func (c *Checker) checkLoop(e *ast.LoopExpr) typetable.TypeId {
 	c.checkBlock(e.Body)
+	// If the body contains a break with a value, the loop's type is the break value type.
+	// Otherwise it diverges.
+	if breakTy := c.findBreakType(e.Body); breakTy != typetable.InvalidTypeId {
+		return breakTy
+	}
 	return c.Types.Never // infinite loop diverges unless broken
+}
+
+// findBreakType scans a block for break expressions with values and returns their type.
+func (c *Checker) findBreakType(block *ast.BlockExpr) typetable.TypeId {
+	if block == nil {
+		return typetable.InvalidTypeId
+	}
+	for _, stmt := range block.Stmts {
+		if es, ok := stmt.(*ast.ExprStmt); ok {
+			if br, ok := es.Expr.(*ast.BreakExpr); ok && br.Value != nil {
+				if ty, ok := c.ExprTypes[br.Value]; ok {
+					return ty
+				}
+			}
+		}
+	}
+	return typetable.InvalidTypeId
 }
 
 // --- return / break ---

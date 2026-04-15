@@ -47,6 +47,15 @@ type Checker struct {
 	// Populated when concrete enum types are created (e.g. Option[I32]).
 	EnumTypeVariants map[typetable.TypeId][]VariantDef
 
+	// constValues maps const names to their resolved types.
+	constValues map[string]typetable.TypeId
+
+	// typeAliases maps alias names to their underlying TypeId.
+	typeAliases map[string]typetable.TypeId
+
+	// ConstLiterals maps const names to their literal string values (for inlining).
+	ConstLiterals map[string]string
+
 	// current context during body checking
 	currentModule *resolve.Module
 	currentReturn typetable.TypeId
@@ -84,6 +93,9 @@ func NewChecker(types *typetable.TypeTable, graph *resolve.ModuleGraph) *Checker
 		traitSupers:      make(map[string][]string),
 		EnumVariants:     make(map[string][]VariantDef),
 		EnumTypeVariants: make(map[typetable.TypeId][]VariantDef),
+		constValues:      make(map[string]typetable.TypeId),
+		ConstLiterals:    make(map[string]string),
+		typeAliases:      make(map[string]typetable.TypeId),
 	}
 }
 
@@ -123,6 +135,10 @@ func (c *Checker) registerSignatures(mod *resolve.Module) {
 			c.registerTrait(mod, n)
 		case *ast.ImplDecl:
 			c.registerImpl(mod, n)
+		case *ast.ConstDecl:
+			c.registerConst(mod, n)
+		case *ast.TypeAliasDecl:
+			c.registerTypeAlias(mod, n)
 		}
 	}
 }
@@ -144,11 +160,17 @@ func (c *Checker) registerExternFn(mod *resolve.Module, fn *ast.ExternFnDecl) {
 func (c *Checker) registerStruct(mod *resolve.Module, s *ast.StructDecl) {
 	sty := c.Types.InternStruct(mod.Path.String(), s.Name, nil)
 	var fields []fieldInfo
+	var fieldNames []string
+	var fieldTypes []typetable.TypeId
 	for _, f := range s.Fields {
 		fty := c.resolveTypeExpr(f.Type)
 		fields = append(fields, fieldInfo{Name: f.Name, Type: fty})
+		fieldNames = append(fieldNames, f.Name)
+		fieldTypes = append(fieldTypes, fty)
 	}
 	c.structFields[sty] = fields
+	// Store field info on the type entry so codegen can emit struct definitions.
+	c.Types.SetStructFields(sty, fieldNames, fieldTypes)
 }
 
 func (c *Checker) registerEnum(mod *resolve.Module, e *ast.EnumDecl) {
@@ -192,6 +214,27 @@ func (c *Checker) registerEnum(mod *resolve.Module, e *ast.EnumDecl) {
 			}
 		}
 		c.Types.SetEnumFields(ety, maxPayloads)
+	}
+}
+
+func (c *Checker) registerTypeAlias(_ *resolve.Module, ta *ast.TypeAliasDecl) {
+	underlying := c.resolveTypeExpr(ta.Type)
+	c.typeAliases[ta.Name] = underlying
+}
+
+func (c *Checker) registerConst(mod *resolve.Module, cn *ast.ConstDecl) {
+	ty := c.resolveTypeExprOr(cn.Type, c.Types.Unknown)
+	if ty == c.Types.Unknown && cn.Value != nil {
+		ty = c.checkExpr(cn.Value)
+	}
+	c.constValues[mod.Path.String()+"."+cn.Name] = ty
+	c.constValues[cn.Name] = ty
+	// Store literal value for inlining at use sites.
+	if cn.Value != nil {
+		if lit, ok := cn.Value.(*ast.LiteralExpr); ok {
+			c.ConstLiterals[mod.Path.String()+"."+cn.Name] = lit.Token.Literal
+			c.ConstLiterals[cn.Name] = lit.Token.Literal
+		}
 	}
 }
 

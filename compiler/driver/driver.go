@@ -195,14 +195,20 @@ func compileAndLink(cSource string, opts BuildOptions) error {
 	var includeDirs []string
 	if rtLib != "" {
 		rtDir := filepath.Dir(rtLib)
+		// Dev layout: runtime/libfuse_rt.a → runtime/include/
 		includeDir := filepath.Join(rtDir, "include")
 		if _, err := os.Stat(includeDir); err == nil {
 			includeDirs = append(includeDirs, includeDir)
 		}
-		// Also try sibling include directory (runtime/include from runtime/libfuse_rt.a).
+		// Dev layout (CWD one level up): ../runtime/include/
 		parentInclude := filepath.Join(filepath.Dir(rtDir), "runtime", "include")
 		if _, err := os.Stat(parentInclude); err == nil {
 			includeDirs = append(includeDirs, parentInclude)
+		}
+		// Packaged layout: lib/libfuse_rt.a → sibling include/
+		siblingInclude := filepath.Join(filepath.Dir(rtDir), "include")
+		if _, err := os.Stat(siblingInclude); err == nil {
+			includeDirs = append(includeDirs, siblingInclude)
 		}
 	}
 
@@ -231,8 +237,24 @@ func compileAndLink(cSource string, opts BuildOptions) error {
 }
 
 // FindRuntimeLib searches for libfuse_rt.a in standard locations.
+// Search order:
+//  1. FUSE_RUNTIME_LIB environment variable (explicit override)
+//  2. Relative to the executable (packaged distribution: <exe>/../lib/)
+//  3. Relative to CWD (development: runtime/)
 func FindRuntimeLib() string {
-	// Check relative to the current working directory.
+	if env := os.Getenv("FUSE_RUNTIME_LIB"); env != "" {
+		return env
+	}
+
+	// Check relative to the executable (packaged layout: bin/fuse + lib/libfuse_rt.a).
+	if exeRoot := exeDistRoot(); exeRoot != "" {
+		c := filepath.Join(exeRoot, "lib", "libfuse_rt.a")
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+
+	// Check relative to the current working directory (development layout).
 	candidates := []string{
 		"runtime/libfuse_rt.a",
 		"../runtime/libfuse_rt.a",
@@ -243,6 +265,27 @@ func FindRuntimeLib() string {
 			abs, _ := filepath.Abs(c)
 			return abs
 		}
+	}
+	return ""
+}
+
+// exeDistRoot returns the distribution root directory (the parent of bin/)
+// when the running executable lives inside a bin/ directory. Returns ""
+// if the executable location cannot be determined or isn't inside bin/.
+func exeDistRoot() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return ""
+	}
+	binDir := filepath.Dir(exe)
+	root := filepath.Dir(binDir)
+	// Sanity: only return a root if the exe actually sits inside a bin/ dir.
+	if filepath.Base(binDir) == "bin" {
+		return root
 	}
 	return ""
 }

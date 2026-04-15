@@ -6,12 +6,24 @@ import (
 	"strings"
 )
 
-// StdlibRoot is the default path to the stdlib directory, relative to the
-// project root. Override via FUSE_STDLIB_ROOT environment variable.
+// StdlibRoot returns the path to the stdlib directory.
+// Search order:
+//  1. FUSE_STDLIB_ROOT environment variable (explicit override)
+//  2. Relative to the executable (packaged distribution: <exe>/../stdlib/)
+//  3. Relative to CWD (development: stdlib/)
 func StdlibRoot() string {
 	if env := os.Getenv("FUSE_STDLIB_ROOT"); env != "" {
 		return env
 	}
+
+	// Check relative to the executable (packaged layout).
+	if exeRoot := exeDistRoot(); exeRoot != "" {
+		c := filepath.Join(exeRoot, "stdlib")
+		if info, err := os.Stat(c); err == nil && info.IsDir() {
+			return c
+		}
+	}
+
 	return "stdlib"
 }
 

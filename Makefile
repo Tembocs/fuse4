@@ -1,4 +1,4 @@
-.PHONY: all stage1 runtime runtime-test test clean fmt docs repro
+.PHONY: all stage1 runtime runtime-test test clean fmt docs package package-clean repro
 
 # Use gcc by default; override with CC=clang or CC=cc if desired.
 ifeq ($(origin CC),default)
@@ -62,6 +62,12 @@ docs:
 	@test -f docs/rules.md              || (echo "MISSING: docs/rules.md"              && exit 1)
 	@test -f docs/learning-log.md       || (echo "MISSING: docs/learning-log.md"       && exit 1)
 	@echo "docs: all foundational documents present"
+
+package:
+	python dist.py
+
+package-clean:
+	python dist.py --clean
 
 repro:
 	@echo "repro: not yet implemented (Wave 15)"

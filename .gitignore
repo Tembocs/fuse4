@@ -2,6 +2,7 @@
 /fuse
 /fuse.exe
 /build/
+/dist/
 
 # Stage 2 build output
 stage2/build/*

@@ -2,6 +2,7 @@ package check
 
 import (
 	"github.com/Tembocs/fuse4/compiler/ast"
+	"github.com/Tembocs/fuse4/compiler/diagnostics"
 	"github.com/Tembocs/fuse4/compiler/lex"
 	"github.com/Tembocs/fuse4/compiler/resolve"
 	"github.com/Tembocs/fuse4/compiler/typetable"
@@ -265,6 +266,8 @@ func (c *Checker) checkCall(e *ast.CallExpr) typetable.TypeId {
 	for _, arg := range e.Args {
 		c.checkExpr(arg)
 	}
+
+	// Note: Trait bounds are checked post-registration in checkSpecializedBounds.
 
 	ce := c.Types.Get(calleeType)
 	if ce.Kind == typetable.KindFunc {
@@ -726,6 +729,66 @@ func (c *Checker) unifyExprType(expr ast.Expr, expected typetable.TypeId) {
 	}
 	if needsUpgrade {
 		c.ExprTypes[expr] = expected
+	}
+}
+
+// --- trait bounds ---
+
+// checkGenericBounds validates that explicit type args satisfy the generic
+// function's declared trait bounds (e.g., [T: Display] rejects types without Display).
+func (c *Checker) checkGenericBounds(fnName string, typeArgExpr ast.Expr, span diagnostics.Span) {
+	// Find the original generic function declaration.
+	var genFn *ast.FnDecl
+	for _, key := range c.Graph.Order {
+		mod := c.Graph.Modules[key]
+		for _, item := range mod.File.Items {
+			if fn, ok := item.(*ast.FnDecl); ok && fn.Name == fnName && len(fn.GenericParams) > 0 {
+				genFn = fn
+				break
+			}
+		}
+		if genFn != nil {
+			break
+		}
+	}
+	if genFn == nil {
+		return
+	}
+
+	// Extract type arg names from the index expression.
+	var typeArgNames []string
+	switch idx := typeArgExpr.(type) {
+	case *ast.IdentExpr:
+		typeArgNames = []string{idx.Name}
+	case *ast.TupleExpr:
+		for _, el := range idx.Elems {
+			if id, ok := el.(*ast.IdentExpr); ok {
+				typeArgNames = append(typeArgNames, id.Name)
+			}
+		}
+	}
+
+	// Check each generic param's bounds against the concrete type arg.
+	for i, gp := range genFn.GenericParams {
+		if i >= len(typeArgNames) {
+			break
+		}
+		concreteType := typeArgNames[i]
+		for _, bound := range gp.Bounds {
+			boundName := ""
+			if pt, ok := bound.(*ast.PathType); ok && len(pt.Segments) > 0 {
+				boundName = pt.Segments[0]
+			}
+			if boundName == "" {
+				continue
+			}
+			// Check if the concrete type implements the bound trait.
+			implKey := boundName + ":" + concreteType
+			if !c.traitImpls[implKey] {
+				c.errorf(span, "type '%s' does not implement trait '%s' (required by bound on '%s')",
+					concreteType, boundName, gp.Name)
+			}
+		}
 	}
 }
 

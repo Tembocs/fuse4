@@ -617,6 +617,15 @@ fn main() -> I32 { return classify(42); }`,
 		WantExit: 55,
 	},
 
+	// ===== Wave 18: Trait bounds enforcement =====
+	{
+		Name: "w18_trait_bounds_rejected",
+		Source: `trait Showable { fn show(ref self) -> I32; }
+fn display[T: Showable](x: T) -> I32 { return 0; }
+fn main() -> I32 { return display[I32](42); }`,
+		WantError: true,
+	},
+
 	// ===== Wave 18 Phase 05: Safety =====
 	{
 		Name: "w18_unsafe_extern_rejected",

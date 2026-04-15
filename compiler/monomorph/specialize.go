@@ -23,6 +23,14 @@ type instantiation struct {
 	specName string   // specialized name, e.g. "identity__I32"
 }
 
+// BoundsError records a trait bound violation found during monomorphization.
+type BoundsError struct {
+	Span      diagnostics.Span
+	TypeArg   string
+	TraitName string
+	ParamName string
+}
+
 // genericImpl tracks a generic impl block and its methods.
 type genericImpl struct {
 	Target       string           // base type name (e.g., "Option")

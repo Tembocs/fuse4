@@ -136,6 +136,9 @@ func (c *Checker) Check() {
 		mod := c.Graph.Modules[key]
 		c.checkBodies(mod)
 	}
+
+	// Pass 3: validate trait bounds on specialized generic functions.
+	c.checkSpecializedBounds()
 }
 
 // --- Pass 1: signature registration ---
@@ -249,6 +252,83 @@ func (c *Checker) registerEnum(mod *resolve.Module, e *ast.EnumDecl) {
 // registerSpecializedImplMethods finds specialized impl methods (produced by
 // the monomorphizer as top-level functions named Type__Args__Method) and
 // registers them under the base type name for lookupMethod resolution.
+// checkSpecializedBounds validates trait bounds on specialized generic functions.
+// Specialized functions are named GenName__TypeArgs (e.g., display__I32). We find
+// the original generic function, extract its bounds, and check the concrete type
+// args satisfy them.
+func (c *Checker) checkSpecializedBounds() {
+	// Index original generic functions with bounds.
+	type genInfo struct {
+		fn  *ast.FnDecl
+		mod *resolve.Module
+	}
+	generics := map[string]genInfo{}
+	for _, key := range c.Graph.Order {
+		mod := c.Graph.Modules[key]
+		for _, item := range mod.File.Items {
+			if fn, ok := item.(*ast.FnDecl); ok && len(fn.GenericParams) > 0 {
+				hasBounds := false
+				for _, gp := range fn.GenericParams {
+					if len(gp.Bounds) > 0 {
+						hasBounds = true
+					}
+				}
+				if hasBounds {
+					generics[fn.Name] = genInfo{fn, mod}
+				}
+			}
+		}
+	}
+	if len(generics) == 0 {
+		return
+	}
+
+	// Scan for specialized functions matching GenName__TypeArgs pattern.
+	for _, key := range c.Graph.Order {
+		mod := c.Graph.Modules[key]
+		for _, item := range mod.File.Items {
+			fn, ok := item.(*ast.FnDecl)
+			if !ok || len(fn.GenericParams) > 0 {
+				continue
+			}
+			// Check if this is a specialized function.
+			parts := strings.SplitN(fn.Name, "__", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			baseName := parts[0]
+			gi, ok := generics[baseName]
+			if !ok {
+				continue
+			}
+			// Extract type args from the suffix.
+			typeArgStr := parts[1]
+			typeArgs := strings.Split(typeArgStr, "_")
+			// Validate bounds.
+			for i, gp := range gi.fn.GenericParams {
+				if i >= len(typeArgs) {
+					break
+				}
+				concreteType := typeArgs[i]
+				for _, bound := range gp.Bounds {
+					boundName := ""
+					if pt, ok := bound.(*ast.PathType); ok && len(pt.Segments) > 0 {
+						boundName = pt.Segments[0]
+					}
+					if boundName == "" {
+						continue
+					}
+					implKey := boundName + ":" + concreteType
+					if !c.traitImpls[implKey] {
+						c.errorf(fn.Span, "type '%s' does not implement trait '%s' (required by bound on '%s' in function '%s')",
+							concreteType, boundName, gp.Name, baseName)
+					}
+				}
+			}
+		}
+	}
+}
+
 func (c *Checker) registerSpecializedImplMethods() {
 	for _, key := range c.Graph.Order {
 		mod := c.Graph.Modules[key]

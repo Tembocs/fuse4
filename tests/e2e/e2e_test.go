@@ -648,6 +648,21 @@ fn main() -> I32 { return classify(42); }`,
 		WantExit: 10,
 	},
 
+	// ===== Wave 18: Trait default methods =====
+	{
+		Name: "w18_trait_default_method",
+		Source: `trait Greeter {
+	fn greet_code(ref self) -> I32 { return 42; }
+}
+struct Bot { id: I32 }
+impl Greeter : Bot {}
+fn main() -> I32 {
+	let b = Bot { id: 1 };
+	return b.greet_code();
+}`,
+		WantExit: 42,
+	},
+
 	// ===== Wave 18: Where clause enforcement =====
 	{
 		Name: "w18_where_clause_rejected",

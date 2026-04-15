@@ -42,6 +42,10 @@ type Checker struct {
 	// traitSupers maps trait name to supertrait names.
 	traitSupers map[string][]string
 
+	// traitDefaultBodies maps "TraitName.methodName" to the default method FnDecl.
+	// Only populated for trait methods that have a body.
+	traitDefaultBodies map[string]*ast.FnDecl
+
 	// EnumVariants maps enum name to variant definitions (ordered by tag).
 	// Used by the bridge and codegen for variant construction and struct emission.
 	EnumVariants map[string][]VariantDef
@@ -99,8 +103,9 @@ func NewChecker(types *typetable.TypeTable, graph *resolve.ModuleGraph) *Checker
 		funcTypes:        make(map[string]typetable.TypeId),
 		structFields:     make(map[typetable.TypeId][]fieldInfo),
 		traitMethods:     make(map[string][]methodSig),
-		traitImpls:       make(map[string]bool),
-		traitSupers:      make(map[string][]string),
+		traitImpls:         make(map[string]bool),
+		traitSupers:        make(map[string][]string),
+		traitDefaultBodies: make(map[string]*ast.FnDecl),
 		EnumVariants:     make(map[string][]VariantDef),
 		EnumTypeVariants: make(map[typetable.TypeId][]VariantDef),
 		constValues:      make(map[string]typetable.TypeId),
@@ -437,6 +442,10 @@ func (c *Checker) registerTrait(_ *resolve.Module, t *ast.TraitDecl) {
 				ParamTypes: params,
 				ReturnType: ret,
 			})
+			// Store default method body if present.
+			if fn.Body != nil {
+				c.traitDefaultBodies[t.Name+"."+fn.Name] = fn
+			}
 		}
 	}
 	c.traitMethods[t.Name] = methods
@@ -473,6 +482,48 @@ func (c *Checker) registerImpl(mod *resolve.Module, impl *ast.ImplDecl) {
 		traitName := typeExprName(impl.Trait)
 		if traitName != "" && targetName != "" {
 			c.traitImpls[traitName+":"+targetName] = true
+
+			// Track which methods this impl overrides.
+			overridden := map[string]bool{}
+			for _, item := range impl.Items {
+				if fn, ok := item.(*ast.FnDecl); ok {
+					overridden[fn.Name] = true
+				}
+			}
+
+			// For each trait method NOT overridden, inject the default body
+			// as a concrete method on the target type.
+			if methods, ok := c.traitMethods[traitName]; ok {
+				for _, m := range methods {
+					if overridden[m.Name] {
+						continue
+					}
+					defaultKey := traitName + "." + m.Name
+					defaultFn, hasDefault := c.traitDefaultBodies[defaultKey]
+					if !hasDefault {
+						continue
+					}
+					// Clone the default method and register it for the target type.
+					cloned := &ast.FnDecl{
+						Span:       defaultFn.Span,
+						Public:     defaultFn.Public,
+						Name:       defaultFn.Name,
+						Params:     defaultFn.Params,
+						ReturnType: defaultFn.ReturnType,
+						Body:       defaultFn.Body,
+					}
+					// Register as method on target type.
+					params := c.resolveImplParamTypes(cloned.Params, targetType)
+					ret := c.resolveTypeExprOr(cloned.ReturnType, c.Types.Unit)
+					key := targetName + "." + cloned.Name
+					c.funcTypes[key] = c.Types.InternFunc(params, ret)
+					qualKey := mod.Path.String() + "." + cloned.Name
+					c.funcTypes[qualKey] = c.Types.InternFunc(params, ret)
+
+					// Add to the module's items so the driver compiles it.
+					mod.File.Items = append(mod.File.Items, cloned)
+				}
+			}
 		}
 	}
 }

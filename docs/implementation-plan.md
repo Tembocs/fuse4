@@ -900,3 +900,16 @@ The following rules apply to every wave.
 - Stdlib failures are compiler signals, not library excuses.
 - Workarounds are forbidden.
 - Each non-trivial bug must produce both a regression and a learning-log entry.
+- Every wave that introduces a user-visible feature must include at least one
+  end-to-end proof program: a Fuse source file that compiles, links, runs, and
+  produces a verified output. The proof program must fail if the feature is
+  stubbed (Rule 6.8).
+- Exit criteria must include behavioral requirements ("this program produces
+  exit code N"), not only structural ones ("HIR nodes carry metadata").
+  Structural criteria are necessary but never sufficient alone (Rule 6.10).
+- Every task must name what it replaces: "currently X is stubbed at file:line,
+  producing behavior Y." This forces an audit of the current state before
+  claiming work is complete.
+- Stubs must emit compiler diagnostics, not silent defaults. A feature that
+  parses and type-checks but is not lowered must produce an error, not a
+  silently wrong program (Rule 6.9).

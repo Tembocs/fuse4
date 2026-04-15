@@ -197,6 +197,28 @@ scope.
 
 Any regression in self-hosting or reproducibility is a release blocker.
 
+### Rule 6.8 — No feature is complete without an end-to-end proof program.
+
+A feature is complete only when a Fuse program that uses it compiles, links,
+runs, and produces the correct output. Unit tests prove a component works in
+isolation. End-to-end proof programs prove the compiler works for the user. Both
+are required. (See learning-log L013, L014.)
+
+### Rule 6.9 — Stubs must emit diagnostics, not silent defaults.
+
+If a feature is parsed and type-checked but not lowered or codegenned, the
+compiler must emit a diagnostic such as `"closures are not yet implemented"`.
+A stub that compiles silently is indistinguishable from a working implementation
+to both the test suite and the user. Silent stubs are forbidden. (See
+learning-log L013.)
+
+### Rule 6.10 — Exit criteria must be behavioral, not only structural.
+
+Wave exit criteria must include at least one behavioral requirement: "this
+program compiles, runs, and returns exit code N." Structural criteria ("HIR
+nodes carry metadata", "MIR terminates correctly") are necessary but never
+sufficient on their own. (See learning-log L014.)
+
 ## 7. Determinism rules
 
 ### Rule 7.1 — Same input, same bytes.

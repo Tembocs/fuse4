@@ -350,7 +350,17 @@ Shared corpora and reusable test packages.
 
 ### `tests/e2e/`
 
-End-to-end build and execution tests.
+End-to-end build and execution tests. This directory is not optional
+infrastructure — it is the primary evidence that the compiler works (Rule 6.8).
+
+Every compiler feature that affects program behavior must have at least one
+end-to-end proof program here. A proof program is a `.fuse` source file (or a
+Go test case containing inline Fuse source) that compiles, links, runs, and
+produces a verified output. Proof programs must fail if the feature they exercise
+is stubbed or reverted.
+
+The `tests/e2e/` directory must be populated from Wave 01 onward, not deferred
+to later waves.
 
 ### `tests/bootstrap/`
 

@@ -1,38 +1,81 @@
 /// Compiler driver: orchestrates the full pipeline.
 /// Mirrors stage1 compiler/driver/ package.
 ///
-/// Pipeline: parse → resolve → check → lower → codegen → compile → link
+/// Pipeline: parse → resolve → monomorph → check → HIR → liveness → MIR → codegen → compile → link
 
 import core.string.String;
+import core.list.List;
 import core.map.Map;
 import core.result.Result;
-import full.io;
 
 /// BuildOptions configures a compilation.
 pub struct BuildOptions {
+    sources: Map[String, String],
     output_path: String,
+    runtime_lib: String,
+    backend: String,
     optimize: Bool,
     debug: Bool,
 }
 
+impl BuildOptions {
+    pub fn new() -> BuildOptions {
+        return BuildOptions {
+            sources: Map.new(),
+            output_path: String.new(),
+            runtime_lib: String.new(),
+            backend: "c11",
+            optimize: false,
+            debug: false,
+        };
+    }
+}
+
 /// BuildResult holds the outcome of a compilation.
 pub struct BuildResult {
+    errors: List[String],
     c_source: String,
     output_path: String,
     success: Bool,
 }
 
-/// Build runs the full compiler pipeline.
-pub fn build(sources: Map[String, String], opts: BuildOptions) -> BuildResult {
-    // Phase 1: Parse all modules.
-    // Phase 2: Resolve names.
-    // Phase 3: Type check.
-    // Phase 4: Lower to MIR.
-    // Phase 5: Emit C11.
-    // Phase 6: Compile and link.
-    BuildResult {
-        c_source: String.new(),
-        output_path: opts.output_path,
-        success: true,
+impl BuildResult {
+    pub fn new() -> BuildResult {
+        return BuildResult {
+            errors: List.new(),
+            c_source: String.new(),
+            output_path: String.new(),
+            success: true,
+        };
     }
+
+    pub fn has_errors(ref self) -> Bool {
+        return self.errors.len() > 0usize;
+    }
+}
+
+/// Build runs the full compiler pipeline.
+pub fn build(opts: BuildOptions) -> BuildResult {
+    var result = BuildResult.new();
+
+    /// Phase 1: Parse all modules.
+    /// Phase 2: Resolve names and imports.
+    /// Phase 2.5: Monomorphize generic functions and impl methods.
+    /// Phase 3: Type check.
+    /// Phase 4: Build HIR, run liveness, lower to MIR.
+    /// Phase 5: Codegen — emit C11.
+    /// Phase 6: Compile and link.
+
+    result.output_path = opts.output_path;
+    return result;
+}
+
+/// Compile C source and link into an executable.
+pub fn compile_and_link(c_source: ref String, output_path: ref String, runtime_lib: ref String) -> Result[(), String] {
+    return Err("compile_and_link not yet implemented in stage2");
+}
+
+/// Find the runtime library (libfuse_rt.a) in standard locations.
+pub fn find_runtime_lib() -> String {
+    return String.new();
 }

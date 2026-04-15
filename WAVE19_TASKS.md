@@ -147,11 +147,11 @@
 
 ## 15. Stage 2 Compiler: Driver and CLI
 
-- [ ] **15a.** driver.fuse: implement Build() orchestrating parse → resolve → check → lower → codegen
-- [ ] **15b.** driver.fuse: implement compileAndLink (write C, invoke gcc, link)
-- [ ] **15c.** main.fuse: implement CLI argument parsing (build, run, check subcommands)
-- [ ] **15d.** main.fuse: implement source file reading
-- [ ] **15e.** E2e proof: Stage 2 compiles a hello-world Fuse program
+- [x] **15a.** driver.fuse: implement Build() orchestrating parse → resolve → check → lower → codegen
+- [x] **15b.** driver.fuse: implement compileAndLink (write C, invoke gcc, link)
+- [x] **15c.** main.fuse: implement CLI argument parsing (build, run, check subcommands)
+- [x] **15d.** main.fuse: implement source file reading
+- [x] **15e.** E2e proof: Stage 2 compiles a hello-world Fuse program
 
 ## 16. Native Backend (mandatory — required to retire C)
 

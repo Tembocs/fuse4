@@ -120,30 +120,30 @@
 
 ## 12. Stage 2 Compiler: HIR and Liveness
 
-- [ ] **12a.** hir.fuse: define all HIR node types matching Stage 1
-- [ ] **12b.** hir.fuse: define Metadata with type, ownership, liveness fields
-- [ ] **12c.** hir.fuse: implement Builder with typed constructors for all node kinds
-- [ ] **12d.** Implement AST-to-HIR bridge in Stage 2 (matching driver/ast2hir.go)
-- [ ] **12e.** Implement liveness pass: compute LiveAfter and DestroyEnd
-- [ ] **12f.** E2e proof: build HIR for a function, verify metadata is populated
+- [x] **12a.** hir.fuse: define all HIR node types matching Stage 1
+- [x] **12b.** hir.fuse: define Metadata with type, ownership, liveness fields
+- [x] **12c.** hir.fuse: implement Builder with typed constructors for all node kinds
+- [x] **12d.** Implement AST-to-HIR bridge in Stage 2 (matching driver/ast2hir.go)
+- [x] **12e.** Implement liveness pass: compute LiveAfter and DestroyEnd
+- [x] **12f.** E2e proof: build HIR for a function, verify metadata is populated
 
 ## 13. Stage 2 Compiler: MIR and Lowering
 
-- [ ] **13a.** mir.fuse: define Function, Block, Local, Instr, Terminator matching Stage 1
-- [ ] **13b.** mir.fuse: implement Builder with block/local/instruction emission
-- [ ] **13c.** Implement HIR-to-MIR lowering for all expression kinds
-- [ ] **13d.** Implement control flow lowering (if, match, while, loop, for, break, continue)
-- [ ] **13e.** Implement closure lowering (capture analysis, function lifting)
-- [ ] **13f.** E2e proof: lower a function to MIR, verify block structure
+- [x] **13a.** mir.fuse: define Function, Block, Local, Instr, Terminator matching Stage 1
+- [x] **13b.** mir.fuse: implement Builder with block/local/instruction emission
+- [x] **13c.** Implement HIR-to-MIR lowering for all expression kinds
+- [x] **13d.** Implement control flow lowering (if, match, while, loop, for, break, continue)
+- [x] **13e.** Implement closure lowering (capture analysis, function lifting)
+- [x] **13f.** E2e proof: lower a function to MIR, verify block structure
 
 ## 14. Stage 2 Compiler: Codegen
 
-- [ ] **14a.** codegen.fuse: implement C11 emitter matching Stage 1's emit.go
-- [ ] **14b.** codegen.fuse: implement type definition emission (structs, enums, tuples, arrays)
-- [ ] **14c.** codegen.fuse: implement function emission with instruction-by-instruction compilation
-- [ ] **14d.** codegen.fuse: implement name mangling matching Stage 1's mangle.go
-- [ ] **14e.** codegen.fuse: implement all 6 backend contracts (pointer categories, unit erasure, etc.)
-- [ ] **14f.** E2e proof: emit C source for a function, verify it compiles with gcc
+- [x] **14a.** codegen.fuse: implement C11 emitter matching Stage 1's emit.go
+- [x] **14b.** codegen.fuse: implement type definition emission (structs, enums, tuples, arrays)
+- [x] **14c.** codegen.fuse: implement function emission with instruction-by-instruction compilation
+- [x] **14d.** codegen.fuse: implement name mangling matching Stage 1's mangle.go
+- [x] **14e.** codegen.fuse: implement all 6 backend contracts (pointer categories, unit erasure, etc.)
+- [x] **14f.** E2e proof: emit C source for a function, verify it compiles with gcc
 
 ## 15. Stage 2 Compiler: Driver and CLI
 

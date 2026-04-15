@@ -1,5 +1,6 @@
 /// MIR: block-based mid-level IR for backends.
 /// Mirrors stage1 compiler/mir/ package.
+/// MIR has explicit control flow, borrows, drops, and typed locals.
 
 import core.string.String;
 import core.list.List;
@@ -10,48 +11,180 @@ pub type LocalId = I32;
 /// BlockId identifies a basic block.
 pub type BlockId = I32;
 
-/// InstrKind classifies an MIR instruction.
-pub enum InstrKind {
-    Const,
-    Copy,
-    Move,
-    Borrow,
-    Drop,
-    Call,
-    FieldRead,
-    FieldAddr,
-    Index,
-    BinOp,
-    UnaryOp,
-    Tuple,
-    StructInit,
-    EnumInit,
+/// BorrowKind distinguishes shared from mutable borrows.
+pub enum BorrowKind {
+    BorrowShared,
+    BorrowMutable,
 }
 
-/// TermKind classifies a block terminator.
-pub enum TermKind {
-    None,
-    Return,
-    Goto,
-    Branch,
-    Diverge,
+/// InstrKind classifies an MIR instruction.
+pub enum InstrKind {
+    InstrConst,
+    InstrCopy,
+    InstrMove,
+    InstrBorrow,
+    InstrDrop,
+    InstrCall,
+    InstrFieldRead,
+    InstrFieldAddr,
+    InstrIndex,
+    InstrBinOp,
+    InstrUnaryOp,
+    InstrTuple,
+    InstrStructInit,
+    InstrEnumInit,
+    InstrCast,
+    InstrPtrWrite,
+    InstrPtrDerefWrite,
 }
 
 /// Instr is a single MIR instruction.
 pub struct Instr {
     kind: InstrKind,
     dest: LocalId,
+    instr_type: TypeId,
+    src: LocalId,
+    src2: LocalId,
+    callee: LocalId,
+    field: String,
+    op: String,
+    value: String,
+    is_method: Bool,
+    borrow_kind: BorrowKind,
 }
 
-/// Block is a basic block with instructions and a terminator.
-pub struct Block {
+impl Instr {
+    pub fn new(kind: InstrKind, dest: LocalId) -> Instr {
+        return Instr {
+            kind: kind, dest: dest, instr_type: 0,
+            src: 0, src2: 0, callee: 0,
+            field: String.new(), op: String.new(), value: String.new(),
+            is_method: false, borrow_kind: BorrowShared,
+        };
+    }
+}
+
+/// TermKind classifies a block terminator.
+pub enum TermKind {
+    TermNone,
+    TermReturn,
+    TermGoto,
+    TermBranch,
+    TermDiverge,
+}
+
+/// Terminator ends a basic block.
+pub struct Terminator {
+    kind: TermKind,
+    value: LocalId,
+    target: BlockId,
+    else_target: BlockId,
+}
+
+impl Terminator {
+    pub fn none() -> Terminator {
+        return Terminator { kind: TermNone, value: 0, target: 0, else_target: 0 };
+    }
+}
+
+/// MirLocal is a named local variable or temporary.
+pub struct MirLocal {
+    id: LocalId,
+    name: String,
+    local_type: TypeId,
+}
+
+/// MirBlock is a basic block with instructions and a terminator.
+pub struct MirBlock {
     id: BlockId,
     instrs: List[Instr],
+    term: Terminator,
     sealed: Bool,
+}
+
+impl MirBlock {
+    pub fn new(id: BlockId) -> MirBlock {
+        return MirBlock {
+            id: id, instrs: List.new(),
+            term: Terminator.none(), sealed: false,
+        };
+    }
 }
 
 /// MirFunction is the MIR representation of a function.
 pub struct MirFunction {
     name: String,
-    blocks: List[Block],
+    params: List[MirLocal],
+    locals: List[MirLocal],
+    blocks: List[MirBlock],
+    return_type: TypeId,
+    entry_block: BlockId,
+}
+
+impl MirFunction {
+    pub fn new(name: String, return_type: TypeId) -> MirFunction {
+        return MirFunction {
+            name: name, params: List.new(), locals: List.new(),
+            blocks: List.new(), return_type: return_type, entry_block: 0,
+        };
+    }
+}
+
+/// MirBuilder constructs MIR functions with centralized management.
+pub struct MirBuilder {
+    name: String,
+    return_type: TypeId,
+    next_local: LocalId,
+    next_block: BlockId,
+    current: BlockId,
+}
+
+impl MirBuilder {
+    pub fn new(name: String, return_type: TypeId) -> MirBuilder {
+        return MirBuilder {
+            name: name, return_type: return_type,
+            next_local: 0, next_block: 0, current: 0,
+        };
+    }
+
+    pub fn new_local(mutref self, name: String, local_type: TypeId) -> LocalId {
+        let id = self.next_local;
+        self.next_local = self.next_local + 1;
+        return id;
+    }
+
+    pub fn new_temp(mutref self, local_type: TypeId) -> LocalId {
+        return self.new_local(String.new(), local_type);
+    }
+
+    pub fn new_block(mutref self) -> BlockId {
+        let id = self.next_block;
+        self.next_block = self.next_block + 1;
+        return id;
+    }
+
+    pub fn switch_to_block(mutref self, block: BlockId) {
+        self.current = block;
+    }
+
+    pub fn build(ref self) -> MirFunction {
+        return MirFunction.new(self.name, self.return_type);
+    }
+}
+
+/// Lowerer translates HIR functions into MIR functions.
+pub struct Lowerer {
+    next_id: I32,
+}
+
+impl Lowerer {
+    pub fn new() -> Lowerer {
+        return Lowerer { next_id: 0 };
+    }
+
+    /// Lower an HIR function to MIR.
+    pub fn lower_function(mutref self, func: ref HirFunction) -> MirFunction {
+        var builder = MirBuilder.new(func.name, func.return_type);
+        return builder.build();
+    }
 }

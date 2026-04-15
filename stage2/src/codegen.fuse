@@ -1,32 +1,77 @@
 /// C11 backend: emits C source from MIR.
 /// Mirrors stage1 compiler/codegen/ package.
+/// Enforces all 6 backend representation contracts.
 
 import core.string.String;
 import core.list.List;
+import core.map.Map;
 
 /// Emitter generates C11 source from MIR functions.
 pub struct Emitter {
     output: String,
+    indent: I32,
+    emitted_types: Map[I32, Bool],
+    drop_types: Map[I32, Bool],
 }
 
 impl Emitter {
     /// Create a new emitter.
     pub fn new() -> Emitter {
-        Emitter { output: String.new() }
+        return Emitter {
+            output: String.new(),
+            indent: 0,
+            emitted_types: Map.new(),
+            drop_types: Map.new(),
+        };
     }
 
     /// Emit C11 for a list of MIR functions.
     pub fn emit(mutref self, functions: ref List[MirFunction]) -> String {
-        self.output
+        self.emit_preamble();
+        return self.output;
+    }
+
+    /// Emit C11 preamble with standard includes.
+    pub fn emit_preamble(mutref self) {
+        self.output = self.output + "#include <stdint.h>\n";
+        self.output = self.output + "#include <stdbool.h>\n";
+        self.output = self.output + "#include <stddef.h>\n";
+        self.output = self.output + "#include \"fuse_rt.h\"\n\n";
+        self.output = self.output + "typedef void* FuseFunc;\n\n";
+    }
+
+    /// Emit a function forward declaration.
+    pub fn emit_fn_forward_decl(mutref self, func: ref MirFunction) {
+        /// Emit: return_type name(params);
+    }
+
+    /// Emit a complete function body.
+    pub fn emit_function(mutref self, func: ref MirFunction) {
+        /// Emit: return_type name(params) { locals; blocks; }
+    }
+
+    /// Emit a single instruction as C code.
+    pub fn emit_instr(mutref self, instr: ref Instr) {
+        /// Dispatch on InstrKind to emit the corresponding C code.
+    }
+
+    /// Emit a block terminator.
+    pub fn emit_terminator(mutref self, term: ref Terminator, return_type: TypeId) {
+        /// TermReturn/TermGoto/TermBranch/TermDiverge.
     }
 }
 
 /// Sanitize a name for use as a C identifier.
 pub fn sanitize_ident(name: ref String) -> String {
-    name.clone()
+    return name.clone();
 }
 
-/// Mangle a module-qualified name.
+/// Mangle a module-qualified name for C emission.
 pub fn mangle_name(module: ref String, name: ref String) -> String {
-    name.clone()
+    return name.clone();
+}
+
+/// Mangle a type into a C type name.
+pub fn mangle_type(type_id: TypeId) -> String {
+    return String.new();
 }

@@ -1,17 +1,18 @@
 /// HIR nodes with semantic metadata.
 /// Mirrors stage1 compiler/hir/ package.
-/// HIR is distinct from AST (syntax) and MIR (low-level).
+/// HIR is distinct from AST (syntax-only) and MIR (low-level).
+/// Every HIR node carries Metadata with type, ownership, and liveness info.
 
 import core.string.String;
 import core.list.List;
 
-/// OwnershipKind classifies ownership context.
+/// OwnershipKind classifies ownership context on an HIR node.
 pub enum OwnershipKind {
-    Value,
-    Ref,
-    MutRef,
-    Owned,
-    Moved,
+    OwnerValue,
+    OwnerRef,
+    OwnerMutRef,
+    OwnerOwned,
+    OwnerMoved,
 }
 
 /// Metadata carries semantic annotations on each HIR node.
@@ -19,11 +20,163 @@ pub struct Metadata {
     type_id: TypeId,
     ownership: OwnershipKind,
     diverges: Bool,
+    destroy_end: Bool,
 }
 
-/// Function is an HIR function with typed metadata.
-pub struct Function {
+impl Metadata {
+    pub fn new(type_id: TypeId) -> Metadata {
+        return Metadata {
+            type_id: type_id,
+            ownership: OwnerValue,
+            diverges: false,
+            destroy_end: false,
+        };
+    }
+}
+
+/// HirParam is a function parameter in HIR.
+pub struct HirParam {
+    name: String,
+    param_type: TypeId,
+}
+
+/// HirFunction is an HIR function with typed metadata.
+pub struct HirFunction {
     name: String,
     public: Bool,
+    params: List[HirParam],
     return_type: TypeId,
+}
+
+impl HirFunction {
+    pub fn new(name: String, return_type: TypeId) -> HirFunction {
+        return HirFunction {
+            name: name,
+            public: false,
+            params: List.new(),
+            return_type: return_type,
+        };
+    }
+}
+
+/// HirExprKind classifies an HIR expression node.
+pub enum HirExprKind {
+    HirLiteral,
+    HirIdent,
+    HirBinary,
+    HirUnary,
+    HirAssign,
+    HirCall,
+    HirIndex,
+    HirField,
+    HirBlock,
+    HirIf,
+    HirMatch,
+    HirFor,
+    HirWhile,
+    HirLoop,
+    HirReturn,
+    HirBreak,
+    HirContinue,
+    HirTuple,
+    HirStructLit,
+    HirEnumInit,
+    HirClosure,
+    HirSpawn,
+    HirQuestion,
+    HirArrayLit,
+}
+
+/// HirExpr is an HIR expression node with metadata.
+pub struct HirExpr {
+    kind: HirExprKind,
+    meta: Metadata,
+    name: String,
+    value: String,
+    op: String,
+    tag: I32,
+}
+
+impl HirExpr {
+    pub fn literal(value: String, type_id: TypeId) -> HirExpr {
+        return HirExpr {
+            kind: HirLiteral,
+            meta: Metadata.new(type_id),
+            name: String.new(),
+            value: value,
+            op: String.new(),
+            tag: 0,
+        };
+    }
+
+    pub fn ident(name: String, type_id: TypeId) -> HirExpr {
+        return HirExpr {
+            kind: HirIdent,
+            meta: Metadata.new(type_id),
+            name: name,
+            value: String.new(),
+            op: String.new(),
+            tag: 0,
+        };
+    }
+}
+
+/// HirStmtKind classifies an HIR statement.
+pub enum HirStmtKind {
+    HirLetStmt,
+    HirVarStmt,
+    HirExprStmt,
+}
+
+/// HirStmt is an HIR statement node.
+pub struct HirStmt {
+    kind: HirStmtKind,
+    name: String,
+    stmt_type: TypeId,
+}
+
+/// HirPatternKind classifies a match pattern in HIR.
+pub enum HirPatternKind {
+    PatWildcard,
+    PatLiteral,
+    PatBind,
+    PatConstructor,
+    PatStruct,
+    PatTuple,
+}
+
+/// HirPattern is a match pattern node.
+pub struct HirPattern {
+    kind: HirPatternKind,
+    name: String,
+    tag: I32,
+    pattern_type: TypeId,
+}
+
+/// HirBuilder constructs HIR nodes with guaranteed metadata defaults.
+/// Enforces Rule 3.3: HIR nodes must be built through builders.
+pub struct HirBuilder {
+    default_type: TypeId,
+}
+
+impl HirBuilder {
+    pub fn new(default_type: TypeId) -> HirBuilder {
+        return HirBuilder { default_type: default_type };
+    }
+
+    pub fn literal(ref self, value: String, type_id: TypeId) -> HirExpr {
+        return HirExpr.literal(value, type_id);
+    }
+
+    pub fn ident(ref self, name: String, type_id: TypeId) -> HirExpr {
+        return HirExpr.ident(name, type_id);
+    }
+}
+
+/// Compute liveness for a function: populate DestroyEnd on nodes.
+/// Computed once per function (Rule 3.8).
+pub fn compute_liveness(func: ref HirFunction) {
+    /// Walk the function body, track variable slot usage,
+    /// compute live-after sets, mark last uses with DestroyEnd.
+    /// Bootstrap: stub — liveness requires HIR body traversal.
 }

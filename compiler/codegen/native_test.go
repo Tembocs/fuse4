@@ -255,7 +255,7 @@ func TestBothBackendsEmitSameMIR(t *testing.T) {
 	})
 	fns := []*mir.Function{fn}
 
-	c11 := NewC11Backend(tt)
+	c11 := NewC11Backend(tt, nil)
 	c11Out, _ := c11.Emit(fns)
 
 	native := NewNativeBackend(tt, false)

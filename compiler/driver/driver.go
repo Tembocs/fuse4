@@ -130,9 +130,10 @@ func Build(opts BuildOptions) *BuildResult {
 		backendTarget = "c11"
 	}
 	backend := codegen.NewBackend(codegen.BackendConfig{
-		Target:   backendTarget,
-		Types:    tt,
-		Optimize: opts.Optimize,
+		Target:    backendTarget,
+		Types:     tt,
+		Optimize:  opts.Optimize,
+		DropTypes: checker.DropTypes(),
 	})
 	output, err := backend.Emit(mirFunctions)
 	if err != nil {

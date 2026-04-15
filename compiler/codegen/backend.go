@@ -27,6 +27,9 @@ type BackendConfig struct {
 
 	// Optimize enables backend optimizations.
 	Optimize bool
+
+	// DropTypes maps TypeIds that have Drop trait implementations.
+	DropTypes map[typetable.TypeId]bool
 }
 
 // NewBackend creates the appropriate backend based on config.
@@ -35,7 +38,7 @@ func NewBackend(cfg BackendConfig) Backend {
 	case "native":
 		return NewNativeBackend(cfg.Types, cfg.Optimize)
 	default:
-		return NewC11Backend(cfg.Types)
+		return NewC11Backend(cfg.Types, cfg.DropTypes)
 	}
 }
 
@@ -45,8 +48,12 @@ type C11Backend struct {
 }
 
 // NewC11Backend creates the C11 code generation backend.
-func NewC11Backend(types *typetable.TypeTable) *C11Backend {
-	return &C11Backend{emitter: NewEmitter(types)}
+func NewC11Backend(types *typetable.TypeTable, dropTypes map[typetable.TypeId]bool) *C11Backend {
+	e := NewEmitter(types)
+	if dropTypes != nil {
+		e.DropTypes = dropTypes
+	}
+	return &C11Backend{emitter: e}
 }
 
 func (b *C11Backend) Name() string { return "c11" }

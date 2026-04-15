@@ -442,6 +442,33 @@ func (c *Checker) GetEnumTypeVariants(ty typetable.TypeId) []VariantDef {
 	return c.EnumTypeVariants[ty]
 }
 
+// HasDropImpl returns true if the given type name has a Drop trait implementation.
+func (c *Checker) HasDropImpl(typeName string) bool {
+	return c.traitImpls["Drop:"+typeName]
+}
+
+// DropTypes returns a map of TypeIds that have Drop implementations.
+func (c *Checker) DropTypes() map[typetable.TypeId]bool {
+	result := make(map[typetable.TypeId]bool)
+	for key := range c.traitImpls {
+		// key format is "TraitName:TypeName"
+		if len(key) > 5 && key[:5] == "Drop:" {
+			typeName := key[5:]
+			// Find the struct type for this name.
+			for _, k := range c.Graph.Order {
+				mod := c.Graph.Modules[k]
+				for _, item := range mod.File.Items {
+					if sd, ok := item.(*ast.StructDecl); ok && sd.Name == typeName {
+						ty := c.Types.InternStruct(mod.Path.String(), typeName, nil)
+						result[ty] = true
+					}
+				}
+			}
+		}
+	}
+	return result
+}
+
 // FuncReturnType returns the return type of a named function.
 func (c *Checker) FuncReturnType(qualifiedName string) typetable.TypeId {
 	if fty, ok := c.funcTypes[qualifiedName]; ok {

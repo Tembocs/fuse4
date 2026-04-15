@@ -401,6 +401,23 @@ fn main() -> I32 {
 		WantExit: 42,
 	},
 
+	// ===== Wave 18 Phase 05: Drop Destructors =====
+	{
+		Name: "w18_drop_destructor",
+		Source: `struct Resource { id: I32 }
+trait Drop { fn drop(mutref self); }
+impl Drop : Resource {
+	fn drop(mutref self) { println("dropped"); }
+}
+fn main() -> I32 {
+	let r = Resource { id: 1 };
+	println("created");
+	return 0;
+}`,
+		WantExit:   0,
+		WantStdout: "dropped",
+	},
+
 	// ===== Wave 18 Phase 06: Strings and I/O =====
 	{
 		Name: "w18_println_hello",

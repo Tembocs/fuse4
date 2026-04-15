@@ -406,6 +406,14 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 func (e *Emitter) emitTerminator(fn *mir.Function, term *mir.Terminator) {
 	switch term.Kind {
 	case mir.TermReturn:
+		// Emit drop calls for named locals with Drop implementations before returning.
+		for _, l := range fn.Locals[len(fn.Params):] {
+			if e.DropTypes[l.Type] && l.Name != "" {
+				e.writeIndent()
+				e.writef("Fuse_drop(&%s);", e.localName(l.Id))
+				e.writeln("")
+			}
+		}
 		if e.isUnit(fn.ReturnType) {
 			e.writeIndent()
 			e.writeln("return;")

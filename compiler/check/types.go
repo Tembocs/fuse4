@@ -43,6 +43,11 @@ func (c *Checker) resolveTypeExpr(te ast.TypeExpr) typetable.TypeId {
 func (c *Checker) resolvePathType(pt *ast.PathType) typetable.TypeId {
 	name := pt.Segments[len(pt.Segments)-1]
 
+	// Self resolves to the current impl target type.
+	if name == "Self" && c.currentImplTarget != typetable.InvalidTypeId {
+		return c.currentImplTarget
+	}
+
 	// Check primitives first.
 	if prim := c.Types.LookupPrimitive(name); prim != typetable.InvalidTypeId {
 		return prim

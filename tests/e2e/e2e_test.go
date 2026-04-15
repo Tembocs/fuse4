@@ -660,6 +660,25 @@ fn main() -> I32 { return classify(42); }`,
 		WantExit: 42,
 	},
 
+	// ===== Wave 19: Self type resolution =====
+	{
+		Name: "w19_self_type_in_impl",
+		Source: `struct Point { x: I32, y: I32 }
+impl Point {
+	fn origin() -> Self {
+		return Point { x: 0, y: 0 };
+	}
+	fn sum(ref self) -> I32 {
+		return self.x + self.y;
+	}
+}
+fn main() -> I32 {
+	let p = Point { x: 40, y: 2 };
+	return p.sum();
+}`,
+		WantExit: 42,
+	},
+
 	// ===== Wave 19: String concatenation =====
 	{
 		Name: "w19_string_concat",

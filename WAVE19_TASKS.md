@@ -30,11 +30,11 @@
 
 ## 3. Codegen: Self Type Resolution
 
-- [ ] **3a.** Checker: in `resolvePathType`, when name is `"Self"` and inside an impl block, resolve to the impl target type
-- [ ] **3b.** Track `currentImplTarget` TypeId in checker during impl body checking
-- [ ] **3c.** Set `currentImplTarget` in `checkBodies` when entering an `ImplDecl`
-- [ ] **3d.** Clear `currentImplTarget` after leaving the `ImplDecl`
-- [ ] **3e.** E2e proof: `impl Clone : Point { fn clone(ref self) -> Self { ... } }` compiles and returns correct value
+- [x] **3a.** Checker: in `resolvePathType`, when name is `"Self"` and inside an impl block, resolve to the impl target type
+- [x] **3b.** Track `currentImplTarget` TypeId in checker during impl body checking and signature registration
+- [x] **3c.** Set `currentImplTarget` in `checkBodies` when entering an `ImplDecl` and in `registerImpl`
+- [x] **3d.** Clear `currentImplTarget` after leaving the `ImplDecl` (defer)
+- [x] **3e.** E2e proof: `impl Point { fn origin() -> Self }` compiles and returns correct value
 
 ## 4. Stdlib: List[T] Real Implementation
 

@@ -70,10 +70,11 @@ type Checker struct {
 	externFns map[string]bool
 
 	// current context during body checking
-	currentModule *resolve.Module
-	currentReturn typetable.TypeId
-	localScope    *resolve.Scope
-	inUnsafe      bool
+	currentModule     *resolve.Module
+	currentReturn     typetable.TypeId
+	currentImplTarget typetable.TypeId // set during impl body checking
+	localScope        *resolve.Scope
+	inUnsafe          bool
 }
 
 type fieldInfo struct {
@@ -464,6 +465,10 @@ func (c *Checker) registerImpl(mod *resolve.Module, impl *ast.ImplDecl) {
 	targetName := typeExprName(impl.Target)
 	targetType := c.resolveTypeExpr(impl.Target)
 
+	// Set currentImplTarget so Self resolves during signature registration.
+	c.currentImplTarget = targetType
+	defer func() { c.currentImplTarget = typetable.InvalidTypeId }()
+
 	for _, item := range impl.Items {
 		if fn, ok := item.(*ast.FnDecl); ok {
 			c.registerFn(mod, fn)
@@ -543,11 +548,14 @@ func (c *Checker) checkBodies(mod *resolve.Module) {
 			if len(n.GenericParams) > 0 {
 				continue
 			}
+			// Set currentImplTarget so Self resolves to the target type.
+			c.currentImplTarget = c.resolveTypeExpr(n.Target)
 			for _, implItem := range n.Items {
 				if fn, ok := implItem.(*ast.FnDecl); ok && fn.Body != nil {
 					c.checkFnBody(mod, fn)
 				}
 			}
+			c.currentImplTarget = typetable.InvalidTypeId
 		case *ast.ConstDecl:
 			if n.Value != nil {
 				c.checkExpr(n.Value)

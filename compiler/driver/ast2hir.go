@@ -324,6 +324,13 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 		}
 		return a.b.Tuple(e.Span, elems, a.typeOf(e))
 
+	case *ast.ArrayLitExpr:
+		var elems []hir.Expr
+		for _, elem := range e.Elems {
+			elems = append(elems, a.lowerExpr(elem))
+		}
+		return a.b.ArrayLit(e.Span, elems, a.typeOf(e))
+
 	case *ast.StructLitExpr:
 		var fields []hir.FieldInitHIR
 		for _, f := range e.Fields {

@@ -273,6 +273,9 @@ func (c *Checker) checkSpecializedBounds() {
 						hasBounds = true
 					}
 				}
+				if fn.Where != nil && len(fn.Where.Constraints) > 0 {
+					hasBounds = true
+				}
 				if hasBounds {
 					generics[fn.Name] = genInfo{fn, mod}
 				}
@@ -322,6 +325,36 @@ func (c *Checker) checkSpecializedBounds() {
 					if !c.traitImpls[implKey] {
 						c.errorf(fn.Span, "type '%s' does not implement trait '%s' (required by bound on '%s' in function '%s')",
 							concreteType, boundName, gp.Name, baseName)
+					}
+				}
+				// Also validate where clause constraints.
+				if gi.fn.Where != nil {
+					for _, wc := range gi.fn.Where.Constraints {
+						wcTypeName := ""
+						if pt, ok := wc.Type.(*ast.PathType); ok && len(pt.Segments) > 0 {
+							wcTypeName = pt.Segments[0]
+						}
+						// Substitute: if the where clause type is a generic param, use the concrete type arg.
+						concreteForWhere := wcTypeName
+						for gi2, gp := range gi.fn.GenericParams {
+							if gp.Name == wcTypeName && gi2 < len(typeArgs) {
+								concreteForWhere = typeArgs[gi2]
+							}
+						}
+						for _, bound := range wc.Bounds {
+							boundName := ""
+							if pt, ok := bound.(*ast.PathType); ok && len(pt.Segments) > 0 {
+								boundName = pt.Segments[0]
+							}
+							if boundName == "" {
+								continue
+							}
+							implKey := boundName + ":" + concreteForWhere
+							if !c.traitImpls[implKey] {
+								c.errorf(fn.Span, "type '%s' does not implement trait '%s' (required by where clause in function '%s')",
+									concreteForWhere, boundName, baseName)
+							}
+						}
 					}
 				}
 			}

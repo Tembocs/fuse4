@@ -358,12 +358,22 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 		}
 		e.writeIndent()
 		ty := MangleType(e.Types, instr.Type)
-		fields := make([]string, len(instr.Args))
-		for i, a := range instr.Args {
-			fields[i] = fmt.Sprintf(".f_%d = %s", i, e.localName(a))
+		te := e.Types.Get(instr.Type)
+		if te.Kind == typetable.KindArray {
+			// Array literal: emit as {.data = {v0, v1, ...}}
+			elems := make([]string, len(instr.Args))
+			for i, a := range instr.Args {
+				elems[i] = e.localName(a)
+			}
+			e.writef("%s = (%s){.data = {%s}};", dest, ty, strings.Join(elems, ", "))
+		} else {
+			// Tuple: emit as {.f_0 = v0, .f_1 = v1, ...}
+			fields := make([]string, len(instr.Args))
+			for i, a := range instr.Args {
+				fields[i] = fmt.Sprintf(".f_%d = %s", i, e.localName(a))
+			}
+			e.writef("%s = (%s){%s};", dest, ty, strings.Join(fields, ", "))
 		}
-		// Contract 5: typed aggregate zero-initializer form.
-		e.writef("%s = (%s){%s};", dest, ty, strings.Join(fields, ", "))
 		e.writeln("")
 
 	case mir.InstrStructInit:

@@ -617,6 +617,58 @@ fn main() -> I32 { return classify(42); }`,
 		WantExit: 55,
 	},
 
+	// ===== Wave 18: Array literals =====
+	{
+		Name: "w18_array_literal",
+		Source: `fn main() -> I32 {
+	let arr = [10, 32];
+	return arr[0] + arr[1];
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "w18_array_sum",
+		Source: `fn main() -> I32 {
+	let a = [1, 2, 3, 4];
+	return a[0] + a[1] + a[2] + a[3];
+}`,
+		WantExit: 10,
+	},
+
+	// ===== Wave 18: for..in on arrays =====
+	{
+		Name: "w18_for_in_array",
+		Source: `fn main() -> I32 {
+	var sum = 0;
+	for x in [1, 2, 3, 4] {
+		sum = sum + x;
+	}
+	return sum;
+}`,
+		WantExit: 10,
+	},
+
+	// ===== Wave 18: Where clause enforcement =====
+	{
+		Name: "w18_where_clause_rejected",
+		Source: `trait Showable { fn show(ref self) -> I32; }
+fn display[T](x: T) -> I32 where T: Showable { return 0; }
+fn main() -> I32 { return display[I32](42); }`,
+		WantError: true,
+	},
+
+	// ===== Wave 18: Pub visibility enforcement =====
+	{
+		Name: "w18_private_fn_cross_module",
+		ExtraModules: map[string]string{
+			"helper": `fn secret() -> I32 { return 42; }
+pub fn public_fn() -> I32 { return 1; }`,
+		},
+		Source: `import helper.public_fn;
+fn main() -> I32 { return public_fn(); }`,
+		WantExit: 1,
+	},
+
 	// ===== Wave 18: Trait bounds enforcement =====
 	{
 		Name: "w18_trait_bounds_rejected",

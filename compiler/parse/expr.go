@@ -312,10 +312,32 @@ func (p *Parser) parsePrimaryExpr() ast.Expr {
 		block.Unsafe = true
 		return block
 
+	// --- array literal: [expr, expr, ...] ---
+	case lex.LBrack:
+		return p.parseArrayLitExpr()
+
 	default:
 		p.errorf(p.peek().Span, "expected expression, got %s", p.peekKind())
 		tok := p.advance() // consume to avoid infinite loop
 		return &ast.LiteralExpr{Span: tok.Span, Token: tok}
+	}
+}
+
+// --- array literal ---
+
+func (p *Parser) parseArrayLitExpr() *ast.ArrayLitExpr {
+	start := p.advance().Span // [
+	var elems []ast.Expr
+	for !p.at(lex.RBrack) && !p.at(lex.EOF) {
+		elems = append(elems, p.parseExpr())
+		if !p.at(lex.RBrack) {
+			p.expect(lex.Comma)
+		}
+	}
+	p.expect(lex.RBrack)
+	return &ast.ArrayLitExpr{
+		Span:  p.spanFrom(start),
+		Elems: elems,
 	}
 }
 

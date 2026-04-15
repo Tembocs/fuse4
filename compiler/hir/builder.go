@@ -138,6 +138,10 @@ func (b *Builder) Tuple(span diagnostics.Span, elems []Expr, ty typetable.TypeId
 	return &TupleExpr{nodeBase: b.baseTyped(span, ty), Elems: elems}
 }
 
+func (b *Builder) ArrayLit(span diagnostics.Span, elems []Expr, ty typetable.TypeId) *ArrayLitExpr {
+	return &ArrayLitExpr{nodeBase: b.baseTyped(span, ty), Elems: elems}
+}
+
 func (b *Builder) StructLit(span diagnostics.Span, name string, fields []FieldInitHIR, ty typetable.TypeId) *StructLitExpr {
 	return &StructLitExpr{nodeBase: b.baseTyped(span, ty), Name: name, Fields: fields}
 }

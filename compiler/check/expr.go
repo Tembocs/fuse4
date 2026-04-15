@@ -70,6 +70,8 @@ func (c *Checker) resolveExpr(expr ast.Expr) typetable.TypeId {
 		return c.checkStructLit(e)
 	case *ast.ClosureExpr:
 		return c.checkClosure(e)
+	case *ast.ArrayLitExpr:
+		return c.checkArrayLit(e)
 	default:
 		return c.Types.Unknown
 	}
@@ -473,8 +475,22 @@ func parseFieldIndex(name string) int {
 // --- optional chaining ---
 
 func (c *Checker) checkQDot(e *ast.QDotExpr) typetable.TypeId {
-	c.checkExpr(e.Expr)
-	// ?. returns the field type wrapped in Option — simplified for now.
+	exprTy := c.checkExpr(e.Expr)
+	te := c.Types.Get(exprTy)
+
+	// ?. on Option[T] or Result[T, E]: access field on the inner T value.
+	// Returns Option[FieldType] (simplified: just the field type for bootstrap).
+	if (te.Kind == typetable.KindEnum || te.Kind == typetable.KindStruct) &&
+		(te.Name == "Option" || te.Name == "Result") && len(te.TypeArgs) > 0 {
+		innerType := te.TypeArgs[0] // T from Option[T] or Result[T, E]
+		// Look up the field on the inner type.
+		fieldTy := c.FieldType(innerType, e.Name)
+		if fieldTy != typetable.InvalidTypeId {
+			return fieldTy
+		}
+		return innerType
+	}
+
 	return c.Types.Unknown
 }
 
@@ -607,14 +623,25 @@ func (c *Checker) checkMatch(e *ast.MatchExpr) typetable.TypeId {
 // --- loops ---
 
 func (c *Checker) checkFor(e *ast.ForExpr) typetable.TypeId {
-	c.checkExpr(e.Iterable)
+	iterTy := c.checkExpr(e.Iterable)
 	prevScope := c.localScope
 	c.localScope = resolve.NewScope(c.localScope)
+
+	// Infer binding type from iterable: if array type, elem is the element type.
+	bindTy := c.Types.Unknown
+	te := c.Types.Get(iterTy)
+	if te.Kind == typetable.KindArray || te.Kind == typetable.KindSlice {
+		bindTy = te.Elem
+	}
+
 	c.localScope.Define(&resolve.Symbol{
 		Name: e.Binding,
 		Kind: resolve.SymLocal,
 		Span: e.Span,
 	})
+	if c.localTypes != nil {
+		c.localTypes[e.Binding] = bindTy
+	}
 	c.checkBlock(e.Body)
 	c.localScope = prevScope
 	return c.Types.Unit
@@ -730,6 +757,22 @@ func (c *Checker) unifyExprType(expr ast.Expr, expected typetable.TypeId) {
 	if needsUpgrade {
 		c.ExprTypes[expr] = expected
 	}
+}
+
+// --- array literal ---
+
+func (c *Checker) checkArrayLit(e *ast.ArrayLitExpr) typetable.TypeId {
+	if len(e.Elems) == 0 {
+		return c.Types.InternArray(c.Types.Unknown, 0)
+	}
+	var elemType typetable.TypeId
+	for _, el := range e.Elems {
+		ty := c.checkExpr(el)
+		if elemType == 0 || elemType == c.Types.Unknown {
+			elemType = ty
+		}
+	}
+	return c.Types.InternArray(elemType, len(e.Elems))
 }
 
 // --- trait bounds ---

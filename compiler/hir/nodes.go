@@ -287,6 +287,13 @@ type TupleExpr struct {
 
 func (n *TupleExpr) exprNode() {}
 
+type ArrayLitExpr struct {
+	nodeBase
+	Elems []Expr
+}
+
+func (n *ArrayLitExpr) exprNode() {}
+
 type StructLitExpr struct {
 	nodeBase
 	Name   string

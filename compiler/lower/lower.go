@@ -99,7 +99,7 @@ func (l *Lowerer) lowerExpr(e hir.Expr) mir.LocalId {
 	case *hir.FieldExpr:
 		return l.lowerField(n)
 	case *hir.QDotExpr:
-		return l.lowerField(&hir.FieldExpr{Expr: n.Expr, Name: n.Name})
+		return l.lowerQDot(n)
 	case *hir.QuestionExpr:
 		return l.lowerQuestion(n)
 	case *hir.Block:
@@ -128,6 +128,8 @@ func (l *Lowerer) lowerExpr(e hir.Expr) mir.LocalId {
 		return l.lowerStructLit(n)
 	case *hir.EnumInitExpr:
 		return l.lowerEnumInit(n)
+	case *hir.ArrayLitExpr:
+		return l.lowerArrayLit(n)
 	case *hir.ClosureExpr:
 		return l.lowerClosure(n)
 	default:
@@ -317,6 +319,43 @@ func (l *Lowerer) lowerField(n *hir.FieldExpr) mir.LocalId {
 	dest := l.b.NewTemp(n.Meta().Type)
 	l.b.EmitFieldRead(dest, src, n.Name, n.Meta().Type)
 	return dest
+}
+
+// lowerQDot implements the ?. operator: check discriminant, extract inner
+// value on success, early-return None/Err on failure, then access the field.
+func (l *Lowerer) lowerQDot(n *hir.QDotExpr) mir.LocalId {
+	subject := l.lowerExpr(n.Expr)
+
+	// Read discriminant tag.
+	tag := l.b.NewTemp(l.Types.I32)
+	l.b.EmitFieldRead(tag, subject, "_tag", l.Types.I32)
+
+	// tag == 0 means Some/Ok.
+	zero := l.b.NewTemp(l.Types.I32)
+	l.b.EmitConst(zero, l.Types.I32, "0")
+	cmp := l.b.NewTemp(l.Types.Bool)
+	l.b.EmitBinOp(cmp, "==", tag, zero, l.Types.Bool)
+
+	someBlock := l.b.NewBlock()
+	noneBlock := l.b.NewBlock()
+	l.b.TermBranch(cmp, someBlock, noneBlock)
+
+	// None/Err path: early return the subject as-is.
+	l.b.SwitchToBlock(noneBlock)
+	l.b.TermReturn(subject)
+
+	// Some/Ok path: extract inner value, then access the field.
+	l.b.SwitchToBlock(someBlock)
+	inner := l.b.NewTemp(n.Meta().Type)
+	l.b.EmitFieldRead(inner, subject, "_f0", n.Meta().Type)
+
+	// If a field name is specified, access it on the inner value.
+	if n.Name != "" {
+		result := l.b.NewTemp(n.Meta().Type)
+		l.b.EmitFieldRead(result, inner, n.Name, n.Meta().Type)
+		return result
+	}
+	return inner
 }
 
 // lowerQuestion implements the ? operator: check discriminant, extract Ok/Some value
@@ -535,7 +574,22 @@ func (l *Lowerer) emitConst(value string, ty typetable.TypeId) mir.LocalId {
 
 func (l *Lowerer) lowerFor(n *hir.ForExpr) mir.LocalId {
 	iterLocal := l.lowerExpr(n.Iterable)
-	bindLocal := l.b.NewLocal(n.Binding, l.Types.Unknown)
+
+	// Determine the element type from the iterable's type.
+	iterType := n.Iterable.Meta().Type
+	iterEntry := l.Types.Get(iterType)
+	elemType := l.Types.Unknown
+	arrayLen := 0
+	if iterEntry.Kind == typetable.KindArray {
+		elemType = iterEntry.Elem
+		arrayLen = iterEntry.ArrayLen
+	}
+
+	// Desugar: for x in arr → { var _idx = 0; while _idx < len { x = arr[_idx]; body; _idx++; } }
+	idxLocal := l.b.NewTemp(l.Types.I32)
+	l.b.EmitConst(idxLocal, l.Types.I32, "0")
+
+	bindLocal := l.b.NewLocal(n.Binding, elemType)
 	l.vars[n.Binding] = bindLocal
 
 	headerBlock := l.b.NewBlock()
@@ -544,15 +598,27 @@ func (l *Lowerer) lowerFor(n *hir.ForExpr) mir.LocalId {
 
 	l.b.TermGoto(headerBlock)
 
+	// Header: check idx < len
 	l.b.SwitchToBlock(headerBlock)
-	// Simplified: unconditional loop, real iterator protocol comes later.
-	l.b.TermBranch(iterLocal, bodyBlock, exitBlock)
+	lenLocal := l.b.NewTemp(l.Types.I32)
+	l.b.EmitConst(lenLocal, l.Types.I32, fmt.Sprintf("%d", arrayLen))
+	cmp := l.b.NewTemp(l.Types.Bool)
+	l.b.EmitBinOp(cmp, "<", idxLocal, lenLocal, l.Types.Bool)
+	l.b.TermBranch(cmp, bodyBlock, exitBlock)
 
+	// Body: x = arr[idx]; body; idx = idx + 1
 	l.b.SwitchToBlock(bodyBlock)
+	l.b.EmitIndex(bindLocal, iterLocal, idxLocal, elemType)
+
 	l.loops = append(l.loops, loopCtx{BreakBlock: exitBlock, ContinueBlock: headerBlock})
 	l.lowerExpr(n.Body)
 	l.loops = l.loops[:len(l.loops)-1]
+
 	if !l.b.IsSealed() {
+		// idx = idx + 1
+		one := l.b.NewTemp(l.Types.I32)
+		l.b.EmitConst(one, l.Types.I32, "1")
+		l.b.EmitBinOp(idxLocal, "+", idxLocal, one, l.Types.I32)
 		l.b.TermGoto(headerBlock)
 	}
 
@@ -688,6 +754,17 @@ func (l *Lowerer) lowerPrintCall(dest mir.LocalId, name string, args []hir.Expr)
 }
 
 // --- compound expressions ---
+
+func (l *Lowerer) lowerArrayLit(n *hir.ArrayLitExpr) mir.LocalId {
+	var elems []mir.LocalId
+	for _, e := range n.Elems {
+		elems = append(elems, l.lowerExpr(e))
+	}
+	dest := l.b.NewTemp(n.Meta().Type)
+	// Emit as a struct init with data array — codegen handles the array type.
+	l.b.EmitTuple(dest, elems, n.Meta().Type)
+	return dest
+}
 
 func (l *Lowerer) lowerTuple(n *hir.TupleExpr) mir.LocalId {
 	var elems []mir.LocalId

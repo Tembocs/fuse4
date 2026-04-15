@@ -215,6 +215,16 @@ type ClosureExpr struct {
 func (n *ClosureExpr) NodeSpan() diagnostics.Span { return n.Span }
 func (n *ClosureExpr) exprNode()                   {}
 
+// ---------- Array literal ----------
+
+type ArrayLitExpr struct {
+	Span  diagnostics.Span
+	Elems []Expr
+}
+
+func (n *ArrayLitExpr) NodeSpan() diagnostics.Span { return n.Span }
+func (n *ArrayLitExpr) exprNode()                   {}
+
 // ---------- Spawn ----------
 
 type SpawnExpr struct {

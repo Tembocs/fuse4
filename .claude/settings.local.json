@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Read", "Edit", "Write", "WebFetch",
       "Bash(grep -v \"//\")",
       "Bash(grep -n \"UnsafeExpr\\\\|ChannelExpr\" /d/fuse/fuse4/compiler/ast/*.go)",
       "Bash(grep -n \"String\\\\|\\\\\"core\\\\\", \\\\\"String\\\\\"\" /d/fuse/fuse4/compiler/codegen/*.go /d/fuse/fuse4/compiler/check/*.go)",

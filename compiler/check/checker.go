@@ -70,11 +70,12 @@ type Checker struct {
 	externFns map[string]bool
 
 	// current context during body checking
-	currentModule     *resolve.Module
-	currentReturn     typetable.TypeId
-	currentImplTarget typetable.TypeId // set during impl body checking
-	localScope        *resolve.Scope
-	inUnsafe          bool
+	currentModule        *resolve.Module
+	currentReturn        typetable.TypeId
+	currentImplTarget    typetable.TypeId // set during impl body checking
+	currentGenericParams map[string]typetable.TypeId // generic param name → KindGenericParam TypeId for the enclosing decl
+	localScope           *resolve.Scope
+	inUnsafe             bool
 }
 
 type fieldInfo struct {
@@ -120,6 +121,22 @@ func NewChecker(types *typetable.TypeTable, graph *resolve.ModuleGraph) *Checker
 func (c *Checker) Check() {
 	// Register built-in types.
 	c.Types.RegisterStringType()
+
+	// Pass 0: register all type aliases across every module. Aliases are
+	// keyed by short name on the Checker and may be referenced from any
+	// module regardless of Graph.Order. Without this pre-pass, modules
+	// visited before the defining one would see the alias as unresolved
+	// (Rule 3.9). Runs before signature registration so aliases are
+	// available when resolving parameter/return types.
+	for _, key := range c.Graph.Order {
+		mod := c.Graph.Modules[key]
+		c.currentModule = mod
+		for _, item := range mod.File.Items {
+			if ta, ok := item.(*ast.TypeAliasDecl); ok {
+				c.registerTypeAlias(mod, ta)
+			}
+		}
+	}
 
 	// Pass 1: register all signatures
 	for _, key := range c.Graph.Order {
@@ -171,16 +188,47 @@ func (c *Checker) registerSignatures(mod *resolve.Module) {
 		case *ast.ConstDecl:
 			c.registerConst(mod, n)
 		case *ast.TypeAliasDecl:
-			c.registerTypeAlias(mod, n)
+			// Type aliases are registered in Pass 0; skip here.
 		}
 	}
 }
 
 func (c *Checker) registerFn(mod *resolve.Module, fn *ast.FnDecl) {
+	restore := c.pushGenericParams(mod, fn.GenericParams)
+	defer restore()
 	params := c.resolveParamTypes(fn.Params)
 	ret := c.resolveTypeExprOr(fn.ReturnType, c.Types.Unit)
 	fty := c.Types.InternFunc(params, ret)
 	c.funcTypes[mod.Path.String()+"."+fn.Name] = fty
+}
+
+// pushGenericParams installs a generic-param scope for a declaration and
+// returns a closure that restores the previous scope. Nested scopes merge
+// with the enclosing scope so that e.g. `trait Foo[T] { fn bar[U](self) }`
+// sees both T and U inside bar.
+//
+// Without this scope the checker's resolvePathType would have no way to
+// distinguish a legitimate `T` reference inside a generic function from an
+// unknown type — it would have to fall back to a synthetic struct entry
+// (the L021 phantom-struct pattern).
+func (c *Checker) pushGenericParams(mod *resolve.Module, params []ast.GenericParam) func() {
+	prev := c.currentGenericParams
+	if len(params) == 0 {
+		return func() { c.currentGenericParams = prev }
+	}
+	modStr := ""
+	if mod != nil {
+		modStr = mod.Path.String()
+	}
+	scope := make(map[string]typetable.TypeId, len(prev)+len(params))
+	for k, v := range prev {
+		scope[k] = v
+	}
+	for _, gp := range params {
+		scope[gp.Name] = c.Types.InternGenericParam(modStr, gp.Name)
+	}
+	c.currentGenericParams = scope
+	return func() { c.currentGenericParams = prev }
 }
 
 func (c *Checker) registerExternFn(mod *resolve.Module, fn *ast.ExternFnDecl) {
@@ -192,6 +240,8 @@ func (c *Checker) registerExternFn(mod *resolve.Module, fn *ast.ExternFnDecl) {
 }
 
 func (c *Checker) registerStruct(mod *resolve.Module, s *ast.StructDecl) {
+	restore := c.pushGenericParams(mod, s.GenericParams)
+	defer restore()
 	sty := c.Types.InternStruct(mod.Path.String(), s.Name, nil)
 	var fields []fieldInfo
 	var fieldNames []string
@@ -214,24 +264,17 @@ func (c *Checker) registerStruct(mod *resolve.Module, s *ast.StructDecl) {
 func (c *Checker) registerEnum(mod *resolve.Module, e *ast.EnumDecl) {
 	modStr := mod.Path.String()
 
-	// Build a map of generic param names → GenericParam TypeIds.
-	gpMap := map[string]typetable.TypeId{}
-	for _, gp := range e.GenericParams {
-		gpMap[gp.Name] = c.Types.InternGenericParam(modStr, gp.Name)
-	}
+	restore := c.pushGenericParams(mod, e.GenericParams)
+	defer restore()
 
 	// Register variant definitions with tag numbers and payload types.
+	// Generic param references inside payload types resolve to
+	// KindGenericParam via the scope installed above.
 	var variants []VariantDef
 	for i, v := range e.Variants {
 		var payloads []typetable.TypeId
 		for _, pt := range v.Types {
-			// Check if the type is a generic param name.
-			name := typeExprName(pt)
-			if gpTy, ok := gpMap[name]; ok {
-				payloads = append(payloads, gpTy)
-			} else {
-				payloads = append(payloads, c.resolveTypeExpr(pt))
-			}
+			payloads = append(payloads, c.resolveTypeExpr(pt))
 		}
 		variants = append(variants, VariantDef{
 			Name:         v.Name,
@@ -241,17 +284,20 @@ func (c *Checker) registerEnum(mod *resolve.Module, e *ast.EnumDecl) {
 	}
 	c.EnumVariants[e.Name] = variants
 
-	// For non-generic enums, register the concrete type variants and fields.
-	if len(e.GenericParams) == 0 {
-		ety := c.Types.InternEnum(modStr, e.Name, nil)
-		c.EnumTypeVariants[ety] = variants
-		var maxPayloads []typetable.TypeId
-		for _, v := range variants {
-			if len(v.PayloadTypes) > len(maxPayloads) {
-				maxPayloads = v.PayloadTypes
-			}
+	// Register the base enum entry (nil TypeArgs) with its payload layout.
+	// For non-generic enums this is the concrete type used at call sites;
+	// for generic enums it is the template whose fields SubstituteFields
+	// resolves against during codegen (Rule 3.9, see learning-log L021).
+	ety := c.Types.InternEnum(modStr, e.Name, nil)
+	var maxPayloads []typetable.TypeId
+	for _, v := range variants {
+		if len(v.PayloadTypes) > len(maxPayloads) {
+			maxPayloads = v.PayloadTypes
 		}
-		c.Types.SetEnumFields(ety, maxPayloads)
+	}
+	c.Types.SetEnumFields(ety, maxPayloads)
+	if len(e.GenericParams) == 0 {
+		c.EnumTypeVariants[ety] = variants
 	}
 }
 
@@ -371,6 +417,11 @@ func (c *Checker) checkSpecializedBounds() {
 func (c *Checker) registerSpecializedImplMethods() {
 	for _, key := range c.Graph.Order {
 		mod := c.Graph.Modules[key]
+		// Set currentModule so type references in the synthetic spec
+		// resolve against the module the spec was placed in (the module
+		// that owns the generic impl). Without this, resolveParamTypes
+		// sees whatever module Pass 0 left in currentModule.
+		c.currentModule = mod
 		for _, item := range mod.File.Items {
 			fn, ok := item.(*ast.FnDecl)
 			if !ok || fn.Body == nil {
@@ -432,12 +483,30 @@ func (c *Checker) registerConst(mod *resolve.Module, cn *ast.ConstDecl) {
 	}
 }
 
-func (c *Checker) registerTrait(_ *resolve.Module, t *ast.TraitDecl) {
+func (c *Checker) registerTrait(mod *resolve.Module, t *ast.TraitDecl) {
+	restore := c.pushGenericParams(mod, t.GenericParams)
+	defer restore()
+	// Self inside a trait declaration is a placeholder for the implementing
+	// type. Register it as a generic param so resolvePathType returns a
+	// proper KindGenericParam instead of firing the unresolved-type
+	// diagnostic (the language guide's trait Self contract).
+	modStr := ""
+	if mod != nil {
+		modStr = mod.Path.String()
+	}
+	if c.currentGenericParams == nil {
+		c.currentGenericParams = map[string]typetable.TypeId{}
+	}
+	if _, exists := c.currentGenericParams["Self"]; !exists {
+		c.currentGenericParams["Self"] = c.Types.InternGenericParam(modStr, "Self")
+	}
 	var methods []methodSig
 	for _, item := range t.Items {
 		if fn, ok := item.(*ast.FnDecl); ok {
+			innerRestore := c.pushGenericParams(mod, fn.GenericParams)
 			params := c.resolveParamTypes(fn.Params)
 			ret := c.resolveTypeExprOr(fn.ReturnType, c.Types.Unit)
+			innerRestore()
 			methods = append(methods, methodSig{
 				Name:       fn.Name,
 				ParamTypes: params,
@@ -462,6 +531,8 @@ func (c *Checker) registerTrait(_ *resolve.Module, t *ast.TraitDecl) {
 }
 
 func (c *Checker) registerImpl(mod *resolve.Module, impl *ast.ImplDecl) {
+	restore := c.pushGenericParams(mod, impl.GenericParams)
+	defer restore()
 	targetName := typeExprName(impl.Target)
 	targetType := c.resolveTypeExpr(impl.Target)
 
@@ -472,9 +543,11 @@ func (c *Checker) registerImpl(mod *resolve.Module, impl *ast.ImplDecl) {
 	for _, item := range impl.Items {
 		if fn, ok := item.(*ast.FnDecl); ok {
 			c.registerFn(mod, fn)
+			innerRestore := c.pushGenericParams(mod, fn.GenericParams)
 			// Resolve params with self → target type.
 			params := c.resolveImplParamTypes(fn.Params, targetType)
 			ret := c.resolveTypeExprOr(fn.ReturnType, c.Types.Unit)
+			innerRestore()
 			key := targetName + "." + fn.Name
 			c.funcTypes[key] = c.Types.InternFunc(params, ret)
 			// Also register module-qualified for direct lookup.
@@ -548,6 +621,7 @@ func (c *Checker) checkBodies(mod *resolve.Module) {
 			if len(n.GenericParams) > 0 {
 				continue
 			}
+			implRestore := c.pushGenericParams(mod, n.GenericParams)
 			// Set currentImplTarget so Self resolves to the target type.
 			c.currentImplTarget = c.resolveTypeExpr(n.Target)
 			for _, implItem := range n.Items {
@@ -556,6 +630,7 @@ func (c *Checker) checkBodies(mod *resolve.Module) {
 				}
 			}
 			c.currentImplTarget = typetable.InvalidTypeId
+			implRestore()
 		case *ast.ConstDecl:
 			if n.Value != nil {
 				c.checkExpr(n.Value)
@@ -565,6 +640,8 @@ func (c *Checker) checkBodies(mod *resolve.Module) {
 }
 
 func (c *Checker) checkFnBody(mod *resolve.Module, fn *ast.FnDecl) {
+	restore := c.pushGenericParams(mod, fn.GenericParams)
+	defer restore()
 	c.currentReturn = c.resolveTypeExprOr(fn.ReturnType, c.Types.Unit)
 	c.localScope = resolve.NewScope(mod.Symbols)
 	c.localTypes = make(map[string]typetable.TypeId)

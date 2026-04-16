@@ -446,6 +446,54 @@ func TestQuestionOnUnknownReturnsUnknown(t *testing.T) {
 	}
 }
 
+// ===== L021: unresolved types must emit a diagnostic =====
+
+// TestUnresolvedTypeEmitsDiagnostic verifies that a type name which is
+// neither a primitive, alias, generic param, nor a known symbol no longer
+// falls through to a synthetic struct entry under the current module
+// (the L021 phantom-struct pattern). It must produce "unresolved type
+// '<name>'".
+func TestUnresolvedTypeEmitsDiagnostic(t *testing.T) {
+	checkExpectError(t, map[string]string{
+		"main": `fn take(x: NotAType) -> I32 { return 0; }`,
+	}, "unresolved type 'NotAType'")
+}
+
+// TestUnknownStructLiteralEmitsDiagnostic verifies the same policy at
+// struct-literal sites (3b in STDLIB_INTEGRATION_TASKS.md).
+func TestUnknownStructLiteralEmitsDiagnostic(t *testing.T) {
+	checkExpectError(t, map[string]string{
+		"main": `fn main() -> I32 { let p = Nope { x: 1 }; return 0; }`,
+	}, "unknown struct 'Nope'")
+}
+
+// TestGenericParamResolvesAsGenericParam verifies a named parameter T
+// inside a generic function interns as KindGenericParam, not as a phantom
+// struct. This is the "handled elsewhere" escape hatch that the 3a
+// diagnostic relies on.
+func TestGenericParamResolvesAsGenericParam(t *testing.T) {
+	_, tt := checkOK(t, map[string]string{
+		"main": `fn identity[T](x: T) -> T { return x; }
+fn main() -> I32 { return 0; }`,
+	})
+	// Iterate type entries looking for the T param interned under module "main".
+	// HasGenericParam is true for it; a phantom struct would instead be KindStruct.
+	found := false
+	for id := typetable.TypeId(1); id < typetable.TypeId(tt.Len()); id++ {
+		e := tt.Get(id)
+		if e.Name == "T" && e.Kind == typetable.KindGenericParam {
+			found = true
+			break
+		}
+		if e.Name == "T" && e.Kind == typetable.KindStruct {
+			t.Fatalf("T interned as phantom struct at id=%d (L021 regression)", id)
+		}
+	}
+	if !found {
+		t.Error("expected T to intern as KindGenericParam")
+	}
+}
+
 // ===== Error detection =====
 
 func TestMalformedInputDoesNotPanic(t *testing.T) {

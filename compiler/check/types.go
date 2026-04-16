@@ -58,32 +58,61 @@ func (c *Checker) resolvePathType(pt *ast.PathType) typetable.TypeId {
 		return alias
 	}
 
+	// A generic parameter of the enclosing decl interns as KindGenericParam,
+	// not as a synthetic struct in the current module (Rule 3.9).
+	if gp, ok := c.currentGenericParams[name]; ok {
+		return gp
+	}
+
 	// Resolve type args.
 	var typeArgs []typetable.TypeId
 	for _, arg := range pt.TypeArgs {
 		typeArgs = append(typeArgs, c.resolveTypeExpr(arg))
 	}
 
-	// Look up in current module scope.
-	if c.currentModule != nil {
-		sym := c.currentModule.Symbols.Lookup(name)
-		if sym != nil {
-			modStr := sym.Module.String()
-			switch sym.Kind {
-			case resolve.SymStruct:
-				return c.Types.InternStruct(modStr, name, typeArgs)
-			case resolve.SymEnum:
-				return c.Types.InternEnum(modStr, name, typeArgs)
-			}
+	// Look up in current module scope. Lookup walks imports, so an
+	// auto-loaded stdlib type (String, List, Option, Result, ...) resolves
+	// to its defining module rather than the current one — the fix for
+	// the L021 module-identity mismatch.
+	if modStr, kind, ok := c.resolveTypeName(name); ok {
+		switch kind {
+		case resolve.SymStruct:
+			return c.Types.InternStruct(modStr, name, typeArgs)
+		case resolve.SymEnum:
+			return c.Types.InternEnum(modStr, name, typeArgs)
+		case resolve.SymTrait:
+			// Trait-as-type is used for return positions like
+			// `fn into_iter(owned self) -> Iterator[T]`. Full dyn-trait
+			// support is pending; for now intern the trait nominally
+			// under its defining module so the canonical identity is
+			// preserved (unlike the L021 phantom-struct pattern).
+			return c.Types.InternStruct(modStr, name, typeArgs)
 		}
 	}
 
-	// Could be a generic type parameter.
-	modStr := ""
-	if c.currentModule != nil {
-		modStr = c.currentModule.Path.String()
+	// Unresolved: emit a diagnostic and return Unknown. Silent fallthrough
+	// to a synthetic struct in the current module is the L021 band-aid
+	// pattern and is forbidden (Rule 3.9, Rule 6.9).
+	c.errorf(pt.Span, "unresolved type '%s'", name)
+	return c.Types.Unknown
+}
+
+// resolveTypeName looks up a nominal type name in the current module's
+// symbol table and returns the symbol's defining module, kind, and a
+// success flag. Shared by resolvePathType and checkStructLit so both sites
+// canonicalize module identity the same way.
+func (c *Checker) resolveTypeName(name string) (string, resolve.SymbolKind, bool) {
+	if c.currentModule == nil {
+		return "", 0, false
 	}
-	return c.Types.InternStruct(modStr, name, typeArgs)
+	sym := c.currentModule.Symbols.Lookup(name)
+	if sym == nil {
+		return "", 0, false
+	}
+	if sym.Kind != resolve.SymStruct && sym.Kind != resolve.SymEnum && sym.Kind != resolve.SymTrait {
+		return "", 0, false
+	}
+	return sym.Module.String(), sym.Kind, true
 }
 
 func (c *Checker) resolveTypeExprOr(te ast.TypeExpr, fallback typetable.TypeId) typetable.TypeId {

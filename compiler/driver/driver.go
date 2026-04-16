@@ -130,6 +130,14 @@ func Build(opts BuildOptions) *BuildResult {
 		return result
 	}
 
+	// Phase 2.25: Inject the stdlib prelude into every user module.
+	// The language guide (§11.4 "Module loading") makes core types
+	// (String, List, Option, Result, Map, Set, Formatter, ...) implicitly
+	// available without explicit import. We add them to each module's
+	// symbol table AFTER resolve so they sit alongside real imports and
+	// can be shadowed by a locally-declared symbol of the same name.
+	injectPrelude(graph)
+
 	// Phase 2.5: Monomorphize — specialize generic functions at the AST level.
 	// This runs before checking so the checker only sees concrete functions.
 	monomorph.SpecializeModules(graph)
@@ -370,6 +378,75 @@ func hasErrors(errs []diagnostics.Diagnostic) bool {
 		}
 	}
 	return false
+}
+
+// injectPrelude populates each non-stdlib module's symbol table with the
+// core stdlib types that the language guide makes implicitly available
+// (§11.4 "Module loading"). The injection runs after import resolution so
+// locally-declared or explicitly-imported symbols of the same name shadow
+// the prelude entry.
+//
+// This is the compiler's mechanical side of the language guide's
+// "standard library is auto-loaded" contract. Without it, user code must
+// write `import core.string.String` even for the most basic types —
+// which contradicts the guide and regresses the L021 auto-load story.
+//
+// Stdlib modules themselves do NOT receive the prelude: each stdlib
+// module must state its real dependencies explicitly so the ext→full→core
+// direction (Rule 5.4) is enforced at the source level.
+func injectPrelude(graph *resolve.ModuleGraph) {
+	prelude := []struct {
+		name   string
+		module string
+		kind   resolve.SymbolKind
+	}{
+		{"String", "core.string", resolve.SymStruct},
+		{"List", "core.list", resolve.SymStruct},
+		{"Map", "core.map", resolve.SymStruct},
+		{"Set", "core.set", resolve.SymStruct},
+		{"Option", "core.option", resolve.SymEnum},
+		{"Result", "core.result", resolve.SymEnum},
+		{"Formatter", "core.fmt", resolve.SymStruct},
+		{"Printable", "core.fmt", resolve.SymTrait},
+		{"Debuggable", "core.fmt", resolve.SymTrait},
+		{"Equatable", "core.equatable", resolve.SymTrait},
+		{"Comparable", "core.comparable", resolve.SymTrait},
+		{"Hashable", "core.hashable", resolve.SymTrait},
+		{"Iterator", "core.traits", resolve.SymTrait},
+		{"IntoIterator", "core.traits", resolve.SymTrait},
+		{"Clone", "core.traits", resolve.SymTrait},
+		{"Default", "core.traits", resolve.SymTrait},
+		{"Drop", "core.traits", resolve.SymTrait},
+	}
+	for _, key := range graph.Order {
+		if _, isStdlib := stdlibTier(key); isStdlib {
+			continue
+		}
+		mod := graph.Modules[key]
+		if mod == nil || mod.Symbols == nil {
+			continue
+		}
+		for _, p := range prelude {
+			if mod.Symbols.LookupLocal(p.name) != nil {
+				continue // user shadow or explicit import wins
+			}
+			target := graph.Lookup(resolve.ModulePath(strings.Split(p.module, ".")))
+			if target == nil {
+				continue // stdlib module not loaded (e.g. SkipAutoStdlib path)
+			}
+			src := target.Symbols.LookupLocal(p.name)
+			if src == nil {
+				continue
+			}
+			mod.Symbols.Define(&resolve.Symbol{
+				Name:   p.name,
+				Kind:   src.Kind,
+				Public: false,
+				Module: src.Module,
+				Parent: src.Parent,
+			})
+		}
+	}
 }
 
 // stdlibTier returns the stdlib tier ("core", "full", "ext") of a module

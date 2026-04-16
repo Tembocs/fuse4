@@ -726,11 +726,14 @@ func (c *Checker) checkStructLit(e *ast.StructLitExpr) typetable.TypeId {
 	for _, f := range e.Fields {
 		c.checkExpr(f.Value)
 	}
-	modStr := ""
-	if c.currentModule != nil {
-		modStr = c.currentModule.Path.String()
+	// Canonicalize under the struct's defining module. A struct named
+	// List in user module `foo` must still intern under `core.list` when
+	// the user's `List` is the auto-loaded stdlib type (L021 fix).
+	if modStr, _, ok := c.resolveTypeName(e.Name); ok {
+		return c.Types.InternStruct(modStr, e.Name, nil)
 	}
-	return c.Types.InternStruct(modStr, e.Name, nil)
+	c.errorf(e.Span, "unknown struct '%s'", e.Name)
+	return c.Types.Unknown
 }
 
 // unifyExprType upgrades an expression's type when the expected type is more

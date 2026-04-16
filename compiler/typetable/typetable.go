@@ -397,3 +397,202 @@ func (tt *TypeTable) hasGenericParamVisit(id TypeId, seen map[TypeId]bool) bool 
 	}
 	return false
 }
+
+// BaseOf returns the TypeId of the generic template for a specialization —
+// same module, same name, nil TypeArgs. Returns InvalidTypeId if the input
+// is not a KindStruct/KindEnum specialization or if the template does not
+// exist in the table.
+//
+// The template must already have been interned (typically during the
+// checker's signature pass on the defining module). Callers must not fall
+// back to a "canonical module" guess when BaseOf returns InvalidTypeId —
+// that would re-introduce the L021 band-aid pattern. The correct response
+// is a diagnostic at the resolution site.
+func (tt *TypeTable) BaseOf(id TypeId) TypeId {
+	if id == InvalidTypeId {
+		return InvalidTypeId
+	}
+	e := tt.Get(id)
+	if e.Kind != KindStruct && e.Kind != KindEnum {
+		return InvalidTypeId
+	}
+	if len(e.TypeArgs) == 0 {
+		return InvalidTypeId // not a specialization
+	}
+	key := internKey(TypeEntry{Kind: e.Kind, Module: e.Module, Name: e.Name})
+	base, ok := tt.intern[key]
+	if !ok {
+		return InvalidTypeId
+	}
+	return base
+}
+
+// SubstituteFields returns the field names and substituted field types for a
+// specialization given its base template's field layout. Generic parameter
+// references in base fields (matched by Name) are replaced by the
+// corresponding entry in typeArgs, recursing through Ptr/Ref/MutRef/Slice/
+// Array/Tuple/Struct/Enum/Channel/Func compositions.
+//
+// Callers pass baseId (the template obtained via BaseOf) and the
+// specialization's TypeArgs. If baseId is invalid the result is (nil, nil).
+//
+// Parameter names are taken from the template's own field types by position:
+// the i-th GenericParam entry encountered in the template corresponds to
+// typeArgs[i] via name matching. Name matching is used (not positional)
+// because the template's fields reference params by name.
+func (tt *TypeTable) SubstituteFields(baseId TypeId, typeArgs []TypeId) ([]string, []TypeId) {
+	if baseId == InvalidTypeId {
+		return nil, nil
+	}
+	base := tt.Get(baseId)
+	if len(base.Fields) == 0 {
+		return nil, nil
+	}
+	params := tt.collectParamNames(baseId)
+	if len(params) == 0 {
+		// Template has no generic params referenced in its fields — return a
+		// copy so callers don't alias the template's slices.
+		names := append([]string(nil), base.FieldNames...)
+		types := append([]TypeId(nil), base.Fields...)
+		return names, types
+	}
+	types := make([]TypeId, len(base.Fields))
+	for i, f := range base.Fields {
+		types[i] = tt.substituteType(f, params, typeArgs, map[TypeId]TypeId{})
+	}
+	var names []string
+	if len(base.FieldNames) > 0 {
+		names = append([]string(nil), base.FieldNames...)
+	}
+	return names, types
+}
+
+// collectParamNames returns the generic-parameter names referenced by the
+// template's fields, in first-seen order.
+func (tt *TypeTable) collectParamNames(id TypeId) []string {
+	var params []string
+	seenName := map[string]bool{}
+	seenId := map[TypeId]bool{}
+	var walk func(TypeId)
+	walk = func(x TypeId) {
+		if x == InvalidTypeId || seenId[x] {
+			return
+		}
+		seenId[x] = true
+		e := tt.Get(x)
+		if e.Kind == KindGenericParam {
+			if !seenName[e.Name] {
+				seenName[e.Name] = true
+				params = append(params, e.Name)
+			}
+			return
+		}
+		if e.Elem != InvalidTypeId {
+			walk(e.Elem)
+		}
+		for _, f := range e.Fields {
+			walk(f)
+		}
+		for _, a := range e.TypeArgs {
+			walk(a)
+		}
+		if e.Kind == KindFunc {
+			walk(e.ReturnType)
+		}
+	}
+	base := tt.Get(id)
+	for _, f := range base.Fields {
+		walk(f)
+	}
+	return params
+}
+
+// substituteType is the recursive core of SubstituteFields. It mirrors the
+// recursion in monomorph.Context.Substitute but lives on the TypeTable so
+// that codegen can use it without importing monomorph. The duplication is
+// documented; a future cleanup can switch monomorph.Substitute to delegate.
+func (tt *TypeTable) substituteType(ty TypeId, params []string, args []TypeId, memo map[TypeId]TypeId) TypeId {
+	if cached, ok := memo[ty]; ok {
+		return cached
+	}
+	e := tt.Get(ty)
+	if e.Kind == KindGenericParam {
+		for i, name := range params {
+			if e.Name == name && i < len(args) {
+				memo[ty] = args[i]
+				return args[i]
+			}
+		}
+		memo[ty] = ty
+		return ty
+	}
+	switch e.Kind {
+	case KindRef:
+		out := tt.InternRef(tt.substituteType(e.Elem, params, args, memo))
+		memo[ty] = out
+		return out
+	case KindMutRef:
+		out := tt.InternMutRef(tt.substituteType(e.Elem, params, args, memo))
+		memo[ty] = out
+		return out
+	case KindPtr:
+		out := tt.InternPtr(tt.substituteType(e.Elem, params, args, memo))
+		memo[ty] = out
+		return out
+	case KindSlice:
+		out := tt.InternSlice(tt.substituteType(e.Elem, params, args, memo))
+		memo[ty] = out
+		return out
+	case KindArray:
+		out := tt.InternArray(tt.substituteType(e.Elem, params, args, memo), e.ArrayLen)
+		memo[ty] = out
+		return out
+	case KindChannel:
+		out := tt.InternChannel(tt.substituteType(e.Elem, params, args, memo))
+		memo[ty] = out
+		return out
+	case KindTuple:
+		newFields := make([]TypeId, len(e.Fields))
+		for i, f := range e.Fields {
+			newFields[i] = tt.substituteType(f, params, args, memo)
+		}
+		out := tt.InternTuple(newFields)
+		memo[ty] = out
+		return out
+	case KindFunc:
+		newParams := make([]TypeId, len(e.Fields))
+		for i, f := range e.Fields {
+			newParams[i] = tt.substituteType(f, params, args, memo)
+		}
+		newRet := tt.substituteType(e.ReturnType, params, args, memo)
+		out := tt.InternFunc(newParams, newRet)
+		memo[ty] = out
+		return out
+	case KindStruct:
+		if len(e.TypeArgs) == 0 {
+			memo[ty] = ty
+			return ty
+		}
+		newArgs := make([]TypeId, len(e.TypeArgs))
+		for i, a := range e.TypeArgs {
+			newArgs[i] = tt.substituteType(a, params, args, memo)
+		}
+		out := tt.InternStruct(e.Module, e.Name, newArgs)
+		memo[ty] = out
+		return out
+	case KindEnum:
+		if len(e.TypeArgs) == 0 {
+			memo[ty] = ty
+			return ty
+		}
+		newArgs := make([]TypeId, len(e.TypeArgs))
+		for i, a := range e.TypeArgs {
+			newArgs[i] = tt.substituteType(a, params, args, memo)
+		}
+		out := tt.InternEnum(e.Module, e.Name, newArgs)
+		memo[ty] = out
+		return out
+	}
+	memo[ty] = ty
+	return ty
+}

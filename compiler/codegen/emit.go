@@ -103,6 +103,29 @@ func (e *Emitter) collectTypes(fn *mir.Function) {
 	}
 }
 
+// concreteLayout returns the field types and field names to emit for a
+// struct/enum TypeEntry. For a specialization whose own Fields slice is
+// empty — typically because the specialization was interned separately
+// from its template — it looks up the base template via BaseOf and
+// substitutes the specialization's TypeArgs into the base's field types.
+//
+// If BaseOf returns InvalidTypeId the specialization truly has no layout
+// (an opaque forward-decl). Per 3c-v in STDLIB_INTEGRATION_TASKS.md,
+// there is no "try canonical core module" fallback here — the checker's
+// resolvePathType is responsible for canonical module identity, so if
+// BaseOf fails the right fix is upstream, not a second lookup attempt.
+func (e *Emitter) concreteLayout(id typetable.TypeId, te *typetable.TypeEntry) ([]typetable.TypeId, []string) {
+	if len(te.Fields) > 0 || len(te.TypeArgs) == 0 {
+		return te.Fields, te.FieldNames
+	}
+	baseId := e.Types.BaseOf(id)
+	if baseId == typetable.InvalidTypeId {
+		return te.Fields, te.FieldNames
+	}
+	names, types := e.Types.SubstituteFields(baseId, te.TypeArgs)
+	return types, names
+}
+
 func (e *Emitter) emitTypeDefIfNeeded(id typetable.TypeId) {
 	if e.emitted[id] || id == typetable.InvalidTypeId {
 		return
@@ -126,23 +149,24 @@ func (e *Emitter) emitTypeDefIfNeeded(id typetable.TypeId) {
 	switch te.Kind {
 	case typetable.KindStruct:
 		e.emitted[id] = true
+		fields, fieldNames := e.concreteLayout(id, te)
 		// Emit field types first.
-		for _, ft := range te.Fields {
+		for _, ft := range fields {
 			e.emitTypeDefIfNeeded(ft)
 		}
 		name := MangleType(e.Types, id)
-		if len(te.FieldNames) > 0 {
+		if len(fieldNames) > 0 {
 			// Struct with known fields: emit full definition.
 			e.writef("typedef struct %s {", name)
-			for i, ft := range te.Fields {
-				fieldName := te.FieldNames[i]
+			for i, ft := range fields {
+				fieldName := fieldNames[i]
 				e.writef(" %s %s;", MangleType(e.Types, ft), SanitizeIdent(fieldName))
 			}
 			e.writef(" } %s;", name)
-		} else if len(te.Fields) > 0 {
+		} else if len(fields) > 0 {
 			// Struct with typed fields but no names (e.g. closure env).
 			e.writef("typedef struct %s {", name)
-			for i, ft := range te.Fields {
+			for i, ft := range fields {
 				e.writef(" %s _f%d;", MangleType(e.Types, ft), i)
 			}
 			e.writef(" } %s;", name)
@@ -153,15 +177,16 @@ func (e *Emitter) emitTypeDefIfNeeded(id typetable.TypeId) {
 		e.writeln("")
 	case typetable.KindEnum:
 		e.emitted[id] = true
+		fields, _ := e.concreteLayout(id, te)
 		// Emit payload field types first.
-		for _, pt := range te.Fields {
+		for _, pt := range fields {
 			e.emitTypeDefIfNeeded(pt)
 		}
 		name := MangleType(e.Types, id)
-		if len(te.Fields) > 0 {
+		if len(fields) > 0 {
 			// Enum with payload fields: struct { int _tag; type _f0; ... }
 			e.writef("typedef struct %s { int _tag;", name)
-			for i, f := range te.Fields {
+			for i, f := range fields {
 				e.writef(" %s _f%d;", MangleType(e.Types, f), i)
 			}
 			e.writef(" } %s;", name)

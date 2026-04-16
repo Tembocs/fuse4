@@ -225,3 +225,103 @@ func TestIsResolved(t *testing.T) {
 		t.Error("generic param should not be resolved")
 	}
 }
+
+func TestBaseOfReturnsTemplateForSpecialization(t *testing.T) {
+	tt := New()
+	// Template interned first with its field layout.
+	base := tt.InternStruct("core.list", "List", nil)
+	pt := tt.InternGenericParam("core.list", "T")
+	tt.SetStructFields(base, []string{"data", "len"}, []TypeId{tt.InternPtr(pt), tt.USize})
+
+	spec := tt.InternStruct("core.list", "List", []TypeId{tt.I32})
+	got := tt.BaseOf(spec)
+	if got != base {
+		t.Errorf("BaseOf(List[I32]) = %d, want template %d", got, base)
+	}
+}
+
+func TestBaseOfReturnsInvalidForTemplate(t *testing.T) {
+	tt := New()
+	base := tt.InternStruct("core.list", "List", nil)
+	if got := tt.BaseOf(base); got != InvalidTypeId {
+		t.Errorf("BaseOf(template) = %d, want InvalidTypeId", got)
+	}
+}
+
+func TestBaseOfReturnsInvalidForPrimitive(t *testing.T) {
+	tt := New()
+	if got := tt.BaseOf(tt.I32); got != InvalidTypeId {
+		t.Errorf("BaseOf(I32) = %d, want InvalidTypeId", got)
+	}
+}
+
+func TestBaseOfReturnsInvalidWhenTemplateAbsent(t *testing.T) {
+	tt := New()
+	// Specialization interned without ever registering the template. L021
+	// guarantees this shouldn't happen after Section 3a, but BaseOf must
+	// still return InvalidTypeId rather than synthesize a template.
+	spec := tt.InternStruct("foo", "Ghost", []TypeId{tt.I32})
+	if got := tt.BaseOf(spec); got != InvalidTypeId {
+		t.Errorf("BaseOf(spec without template) = %d, want InvalidTypeId", got)
+	}
+}
+
+func TestSubstituteFieldsBasic(t *testing.T) {
+	tt := New()
+	base := tt.InternStruct("core.list", "List", nil)
+	pt := tt.InternGenericParam("core.list", "T")
+	ptrT := tt.InternPtr(pt)
+	tt.SetStructFields(base, []string{"data", "len"}, []TypeId{ptrT, tt.USize})
+
+	names, types := tt.SubstituteFields(base, []TypeId{tt.I32})
+	if len(types) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(types))
+	}
+	if len(names) != 2 || names[0] != "data" || names[1] != "len" {
+		t.Errorf("unexpected names: %v", names)
+	}
+	got0 := tt.Get(types[0])
+	if got0.Kind != KindPtr {
+		t.Fatalf("field 0 kind = %s, want Ptr", got0.Kind)
+	}
+	if got0.Elem != tt.I32 {
+		t.Errorf("field 0 elem = %d, want I32 (%d)", got0.Elem, tt.I32)
+	}
+	if types[1] != tt.USize {
+		t.Errorf("field 1 = %d, want USize (%d)", types[1], tt.USize)
+	}
+}
+
+func TestSubstituteFieldsNestedGeneric(t *testing.T) {
+	tt := New()
+	// Option[T] with a Some(T) variant payload.
+	opt := tt.InternEnum("core.option", "Option", nil)
+	pt := tt.InternGenericParam("core.option", "T")
+	tt.SetEnumFields(opt, []TypeId{pt})
+
+	// Node[T] { value: T, next: Option[T] }.
+	node := tt.InternStruct("m", "Node", nil)
+	ntp := tt.InternGenericParam("m", "T")
+	optOfT := tt.InternEnum("core.option", "Option", []TypeId{ntp})
+	tt.SetStructFields(node, []string{"value", "next"}, []TypeId{ntp, optOfT})
+
+	_, types := tt.SubstituteFields(node, []TypeId{tt.I32})
+	if types[0] != tt.I32 {
+		t.Errorf("value type = %d, want I32", types[0])
+	}
+	got1 := tt.Get(types[1])
+	if got1.Kind != KindEnum || got1.Name != "Option" || got1.Module != "core.option" {
+		t.Errorf("next type = kind=%s name=%s module=%s", got1.Kind, got1.Name, got1.Module)
+	}
+	if len(got1.TypeArgs) != 1 || got1.TypeArgs[0] != tt.I32 {
+		t.Errorf("next TypeArgs = %v, want [I32]", got1.TypeArgs)
+	}
+}
+
+func TestSubstituteFieldsInvalidBase(t *testing.T) {
+	tt := New()
+	names, types := tt.SubstituteFields(InvalidTypeId, []TypeId{tt.I32})
+	if names != nil || types != nil {
+		t.Errorf("expected (nil, nil), got (%v, %v)", names, types)
+	}
+}

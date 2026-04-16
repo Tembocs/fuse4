@@ -48,7 +48,16 @@ func SanitizeIdent(name string) string {
 // MangleName produces a module-qualified C identifier from a module path and
 // item name. Same-name items from different modules must not collide.
 // The "main" function is emitted as "main" (C entry point).
+//
+// Names starting with `fuse_rt_` are extern runtime entry points and are
+// returned verbatim — no Fuse_ prefix, no module qualifier, no method
+// prefix. This guard must sit at the top of the function so it also
+// protects extern names from the 4a method-qualification scheme when a
+// future caller passes them through here.
 func MangleName(module, name string) string {
+	if strings.HasPrefix(name, "fuse_rt_") {
+		return name
+	}
 	if name == "main" {
 		return "main"
 	}
@@ -56,6 +65,27 @@ func MangleName(module, name string) string {
 		return "Fuse_" + SanitizeIdent(name)
 	}
 	return "Fuse_" + SanitizeIdent(module) + "__" + SanitizeIdent(name)
+}
+
+// dropFnName builds the C name of the Drop destructor for a type, matching
+// the 4a trait-impl method-qualification scheme (`Fuse_<TypeName>__drop`).
+// Using the type's declared Name (not its full mangled type string)
+// keeps call-sites consistent with the rename applied to impl methods in
+// driver.go.
+func dropFnName(tt *typetable.TypeTable, id typetable.TypeId) string {
+	e := tt.Get(id)
+	name := e.Name
+	if name == "" {
+		name = MangleType(tt, id)
+	}
+	if len(e.TypeArgs) > 0 && (e.Kind == typetable.KindStruct || e.Kind == typetable.KindEnum) {
+		parts := make([]string, 0, len(e.TypeArgs))
+		for _, ta := range e.TypeArgs {
+			parts = append(parts, tt.Get(ta).Name)
+		}
+		return "Fuse_" + SanitizeIdent(name) + "__" + strings.Join(parts, "_") + "__drop"
+	}
+	return "Fuse_" + SanitizeIdent(name) + "__drop"
 }
 
 // MangleType produces the C type name for a Fuse type.

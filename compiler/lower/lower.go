@@ -234,21 +234,44 @@ func (l *Lowerer) lowerStringConcat(left, right mir.LocalId, resultType typetabl
 
 // lowerUnary handles unary operators. Per implementation contract,
 // ref and mutref MUST lower to InstrBorrow, not a generic unary op.
+//
+// Borrow-of-borrow guard (task 4d, L021 cascade): if the operand is
+// already a KindRef / KindMutRef, taking `ref` or `mutref` a second
+// time would emit `&T*` → `T**` in C, producing
+// `-Wincompatible-pointer-types` at every call site. The operand IS
+// already a pointer, so the correct lowering is InstrCopy. Fixing this
+// in the lowerer (not the emitter) keeps borrow semantics in HIR→MIR
+// (Rule 3.1) instead of a C-string patch (Rule 4.1 / Rule 4.2).
 func (l *Lowerer) lowerUnary(n *hir.UnaryExpr) mir.LocalId {
 	operand := l.lowerExpr(n.Operand)
 	dest := l.b.NewTemp(n.Meta().Type)
 
 	switch n.Op {
 	case "ref":
-		l.b.EmitBorrow(dest, operand, n.Meta().Type, mir.BorrowShared)
+		if l.isBorrow(n.Operand.Meta().Type) {
+			l.b.EmitCopy(dest, operand, n.Meta().Type)
+		} else {
+			l.b.EmitBorrow(dest, operand, n.Meta().Type, mir.BorrowShared)
+		}
 	case "mutref":
-		l.b.EmitBorrow(dest, operand, n.Meta().Type, mir.BorrowMutable)
+		if l.isBorrow(n.Operand.Meta().Type) {
+			l.b.EmitCopy(dest, operand, n.Meta().Type)
+		} else {
+			l.b.EmitBorrow(dest, operand, n.Meta().Type, mir.BorrowMutable)
+		}
 	case "move":
 		l.b.EmitMove(dest, operand, n.Meta().Type)
 	default:
 		l.b.EmitUnaryOp(dest, n.Op, operand, n.Meta().Type)
 	}
 	return dest
+}
+
+// isBorrow reports whether a type is a KindRef or KindMutRef (already a
+// borrow pointer). Used by lowerUnary to suppress borrow-of-borrow.
+func (l *Lowerer) isBorrow(ty typetable.TypeId) bool {
+	k := l.Types.Get(ty).Kind
+	return k == typetable.KindRef || k == typetable.KindMutRef
 }
 
 func (l *Lowerer) lowerAssign(n *hir.AssignExpr) mir.LocalId {
@@ -289,18 +312,12 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 		for _, a := range n.Args {
 			args = append(args, l.lowerExpr(a))
 		}
-		// Determine method name: for generic types, use the specialized name.
-		methodName := "Fuse_" + fe.Name
-		te := l.Types.Get(recvType)
-		if len(te.TypeArgs) > 0 && (te.Kind == typetable.KindEnum || te.Kind == typetable.KindStruct) {
-			// Generic type method: use type-qualified name.
-			var typeArgNames []string
-			for _, ta := range te.TypeArgs {
-				tae := l.Types.Get(ta)
-				typeArgNames = append(typeArgNames, tae.Name)
-			}
-			methodName = "Fuse_" + te.Name + "__" + strings.Join(typeArgNames, "_") + "__" + fe.Name
-		}
+		// Determine method name: qualify by the receiver's declared type
+		// so trait impls for different types do not collide in C.
+		// Matches the rename applied to impl method HIR in driver.go (task
+		// 4a). For generic instantiations the type-args go in the middle,
+		// matching the monomorphizer's specialization-name scheme.
+		methodName := l.methodCalleeName(recvType, fe.Name)
 		callee := l.b.NewTemp(l.Types.Unknown)
 		l.b.EmitConst(callee, l.Types.Unknown, methodName)
 		l.b.EmitCall(dest, callee, args, n.Meta().Type, true)
@@ -349,9 +366,11 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 			}
 		}
 		// Direct call by name — emit the mangled function name.
+		// Extern runtime names (`fuse_rt_*`) pass through unchanged so they
+		// link against the C runtime's exported symbols (task 4b).
 		callee = l.b.NewTemp(l.Types.Unknown)
 		mangledName := ident.Name
-		if mangledName != "main" {
+		if !strings.HasPrefix(mangledName, "fuse_rt_") && mangledName != "main" {
 			if _, isLocal := l.vars[ident.Name]; !isLocal {
 				mangledName = "Fuse_" + ident.Name
 			}
@@ -366,6 +385,42 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 	}
 	l.b.EmitCall(dest, callee, args, n.Meta().Type, false)
 	return dest
+}
+
+// methodCalleeName builds the qualified C-level name for a method call
+// `obj.method(...)` given the receiver's declared type. The scheme
+// matches the rename applied to impl methods in driver.go so call sites
+// and definitions agree:
+//
+//   receiver: I32            (primitive)          → Fuse_I32__method
+//   receiver: String         (non-generic struct) → Fuse_String__method
+//   receiver: List[Entry]    (generic spec)       → Fuse_List__Entry__method
+//   receiver: Option[I32]    (generic spec)       → Fuse_Option__I32__method
+//   receiver: ref List[I32]  (borrow)             → unwrapped to List[I32]
+//
+// Without the type qualifier, `impl Equatable : I32 { fn eq }` and
+// `impl Equatable : String { fn eq }` both emitted `Fuse_eq` and
+// collided at link time (L021 cascade).
+func (l *Lowerer) methodCalleeName(recvType typetable.TypeId, methodName string) string {
+	te := l.Types.Get(recvType)
+	// Unwrap a borrow so `ref x: ref String` dispatches on String.
+	for te.Kind == typetable.KindRef || te.Kind == typetable.KindMutRef {
+		recvType = te.Elem
+		te = l.Types.Get(recvType)
+	}
+	typeName := te.Name
+	if typeName == "" {
+		return "Fuse_" + methodName
+	}
+	if len(te.TypeArgs) > 0 && (te.Kind == typetable.KindStruct || te.Kind == typetable.KindEnum) {
+		typeArgNames := make([]string, 0, len(te.TypeArgs))
+		for _, ta := range te.TypeArgs {
+			tae := l.Types.Get(ta)
+			typeArgNames = append(typeArgNames, tae.Name)
+		}
+		return "Fuse_" + typeName + "__" + strings.Join(typeArgNames, "_") + "__" + methodName
+	}
+	return "Fuse_" + typeName + "__" + methodName
 }
 
 func (l *Lowerer) lowerIndex(n *hir.IndexExpr) mir.LocalId {

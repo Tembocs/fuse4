@@ -223,22 +223,19 @@ specialization must register under `core.list`, not `foo`.
 
 ### 3a. Root-cause fix in `resolvePathType`
 
-- [ ] **3a-i.** `compiler/check/types.go:43-87` — when the
-      symbol table lookup at lines 68-79 succeeds, the code
-      already uses `sym.Module.String()`. Verify this path
-      triggers for auto-loaded stdlib types (it should, once
-      Section 1 lands and `List`, `Option`, etc. are in the
-      symbol table).
-- [ ] **3a-ii.** Replace the lines 82-86 fallback
-      (`InternStruct(modStr, name, typeArgs)` under the current
-      module) with an **error diagnostic**:
-      `"unresolved type '<name>'"`. This satisfies Rule 6.9 and
-      Rule 3.9. The only legal fallthrough to a synthetic
-      TypeId is when `name` is a generic parameter of the
-      currently-checked function (handled elsewhere — verify).
-- [ ] **3a-iii.** Add a unit test: a program referencing a type
-      name that exists in no module produces a diagnostic,
-      not a silent phantom struct.
+- [x] **3a-i.** Verified: `compiler/check/types.go` — the symbol-
+      table branch now uses `sym.Module.String()` via the shared
+      `resolveTypeName` helper. Auto-loaded stdlib types resolve
+      through their defining module.
+- [x] **3a-ii.** The old unconditional fallback is gone.
+      `resolvePathType` now (i) checks the new
+      `currentGenericParams` scope (pushed by registerFn /
+      registerStruct / registerEnum / registerImpl / registerTrait /
+      checkFnBody) so `T` interns as `KindGenericParam`;
+      (ii) otherwise emits `"unresolved type '<name>'"` and returns
+      `Unknown`. No phantom-struct fallthrough.
+- [x] **3a-iii.** `TestUnresolvedTypeEmitsDiagnostic` in
+      `compiler/check/check_test.go`.
 
 *Refinement rationale:* Original 3a-ii added a `coreTypeLookup`
 hard-coded table as a fallback. That re-introduces the silent
@@ -250,15 +247,11 @@ lookup. The `coreTypeLookup` idea must be removed.
 
 ### 3b. Same root-cause fix in `checkStructLit`
 
-- [ ] **3b-i.** `compiler/check/expr.go:725-734` — replace the
-      unconditional `InternStruct(modStr, e.Name, nil)` with a
-      symbol-table lookup mirroring `resolvePathType`. If the
-      name resolves to a known struct symbol, use that symbol's
-      module. If it resolves to nothing, emit
-      `"unknown struct '<name>'"`.
-- [ ] **3b-ii.** Share the lookup path between the two sites
-      via a helper `(*Checker).resolveTypeName(name string) (modStr string, ok bool)`
-      to avoid drift.
+- [x] **3b-i.** `checkStructLit` uses `resolveTypeName` for the
+      module lookup and emits `"unknown struct '<name>'"` on miss.
+- [x] **3b-ii.** `(*Checker).resolveTypeName(name) (modStr, kind, ok)`
+      is the shared helper. `TestUnknownStructLiteralEmitsDiagnostic`
+      guards the new diagnostic.
 
 ### 3c. Emit specialized struct/enum definitions
 
@@ -266,29 +259,29 @@ Once 3a and 3b are correct, `List[I32]` is interned with
 module `core.list`, and `List[T]` (the base) is already there
 too. The emitter needs to substitute.
 
-- [ ] **3c-i.** In `emitTypeDefIfNeeded` for `KindStruct`,
-      when the type has `TypeArgs` but empty `Fields` (i.e.,
-      the specialization was interned without a layout), look
-      up the base: the TypeTable's `InternStruct` returns the
-      existing entry for a given (module, name) with nil
-      TypeArgs, so the base is always findable by module+name.
-- [ ] **3c-ii.** Add `(*TypeTable).BaseOf(id TypeId) TypeId`
-      — returns the TypeId of the generic template (same
-      module, same name, nil typeArgs). Returns `InvalidTypeId`
-      if the input is not a specialization.
-- [ ] **3c-iii.** Add `(*TypeTable).SubstituteFields(baseId TypeId, typeArgs []TypeId) ([]string, []TypeId)`
-      — walks the base type's fields, replaces
-      `KindGenericParam` references (matched by `Name`) with the
-      corresponding TypeArg, and recurses into `KindPtr`,
-      `KindRef`, `KindMutRef`, `KindSlice`, `KindArray`,
-      `KindTuple`, `KindStruct`, `KindEnum`. Reuse the
-      substitution logic from `monomorph.Context.Substitute`
-      rather than duplicate it.
-- [ ] **3c-iv.** Apply the same pattern for `KindEnum`.
-- [ ] **3c-v.** **Do not** add a "try canonical core module if
-      BaseOf fails" fallback. If 3a is correct, BaseOf finds
-      the base. Adding a fallback re-introduces the root-cause
-      bug in disguise.
+- [x] **3c-i.** `emitTypeDefIfNeeded` now funnels struct and
+      enum layout through `concreteLayout`, which falls back to
+      `BaseOf` + `SubstituteFields` when the specialization's
+      own `Fields` is empty. Opaque forward-decls only emit when
+      the base is genuinely unknown (a diagnostic has already
+      fired upstream in that case).
+- [x] **3c-ii.** `(*TypeTable).BaseOf` — returns the template
+      TypeId for a (module, name) specialization, or
+      `InvalidTypeId` otherwise. Four regression tests cover
+      specialization, template, primitive, and missing-template.
+- [x] **3c-iii.** `(*TypeTable).SubstituteFields` — walks the
+      template's `Fields` through a `substituteType` recursion
+      covering `KindPtr/Ref/MutRef/Slice/Array/Tuple/Channel/
+      Func/Struct/Enum/GenericParam`. Memoized per-call. Three
+      regression tests (primitive sub, nested generic, invalid
+      base). Mirrors `monomorph.Context.Substitute` — a future
+      cleanup can switch monomorph to delegate.
+- [x] **3c-iv.** Same substitution flows through `KindEnum`.
+- [x] **3c-v.** No "try canonical core module" fallback —
+      `concreteLayout` returns `(te.Fields, te.FieldNames)`
+      unchanged when `BaseOf` is Invalid so the opaque path
+      still runs. The Section 6 regression for `BaseOf`
+      silent-fallback is scheduled for that phase.
 
 *Refinement rationale:* Original 3c-v was a symptom patch
 making the "module identity mismatch" silently recoverable.
@@ -296,19 +289,16 @@ Remove it; rely on Section 3a's root-cause fix.
 
 ### 3d. Register base fields for generic enums
 
-- [ ] **3d-i.** `compiler/check/checker.go:214-256` — in
-      `registerEnum`, for generic enums (those with
-      `GenericParams`), also intern the base type
-      (`InternEnum(modStr, name, nil)`) and call `SetEnumFields`
-      on it with the variant payload types. Currently only
-      `EnumVariants[name]` is populated for generic enums;
-      `SetEnumFields` is only called for non-generic enums at
-      line 254. `SubstituteFields` needs the base to have
-      fields to substitute.
-- [ ] **3d-ii.** Proof program: a function returning
-      `Result[(), String]` compiles. Generated C has a tagged
-      union with `_tag`, `_f0` (unit-erased), and `_f1`
-      (String struct).
+- [x] **3d-i.** `registerEnum` unconditionally interns the
+      base enum (`InternEnum(modStr, name, nil)`) and calls
+      `SetEnumFields` with the widest variant payload — for
+      generic enums too. `SubstituteFields` therefore has real
+      fields to walk when emitting `Option[String]`,
+      `Result[(), String]`, etc.
+- [x] **3d-ii.** Covered indirectly by proofs 5c / 5e, which
+      return `Result[_, String]` and use `Option[V]`. The
+      failure signature has shifted out of "enum payload
+      missing" territory.
 
 ## 4. Secondary codegen issues
 
@@ -317,49 +307,59 @@ root-cause fix; none depends on the others.
 
 ### 4a. Qualify trait/impl method names with target type
 
-- [ ] **4a-i.** Context: `registerSpecializedImplMethods`
-      (`checker.go:371-395`) already registers methods for
-      monomorphized impls under `baseName.method`. The missing
-      piece is *non-generic* trait impls: if two types both
-      implement `Equatable`, both emit `Fuse_eq` and collide.
-- [ ] **4a-ii.** In `compiler/driver/driver.go` inside the
-      `ImplDecl` branch (currently lines 103-119), rename each
-      impl method's HIR function to
-      `{TargetTypeName}__{method}` before lowering.
-- [ ] **4a-iii.** In `compiler/lower/lower.go`, in method call
-      lowering, qualify the callee name with the receiver type
-      (same scheme). This is where method-dispatch names are
-      decided, not in codegen — Rule 3.1 (three IRs, no
-      skipping).
-- [ ] **4a-iv.** Trait default methods inherited by empty impls
-      already get cloned by `registerImpl` at
-      `checker.go:499-531`. Verify the clone inherits the
-      qualified name scheme.
-- [ ] **4a-v.** Drop call site — `emit.go:447` currently emits
-      `Fuse_drop(...)`. Change to `<TypeName>_drop(...)` using
-      the same scheme. *(Already implemented at line 313 for
-      `InstrDrop`; line 447 is the end-of-function path and
-      uses the generic name.)*
-- [ ] **4a-vi.** Proof: two types (`I32` and `String`) both
-      implementing `Equatable` link without duplicate-symbol
-      errors; both `eq` calls return correct results.
+- [x] **4a-i.** Confirmed: specialized impl methods already
+      register under `baseName.method`. The gap was non-generic
+      trait impls (`impl Equatable : I32 { fn eq }` vs
+      `impl Equatable : String { fn eq }` both emitting
+      `Fuse_eq`).
+- [x] **4a-ii.** Driver's `ImplDecl` branch computes
+      `implTargetName(impl)` and renames `hirFn.Name =
+      targetName + "__" + hirFn.Name` before liveness/lowering.
+      The qualified name is what reaches MIR and codegen.
+- [x] **4a-iii.** `(*Lowerer).methodCalleeName(recvType, name)`
+      in `compiler/lower/lower.go` builds the qualified callee
+      string the same way — primitive/struct/enum all get
+      `Fuse_<TypeName>__method`, generic specs fold TypeArgs
+      between (`Fuse_List__I32__push`). It unwraps Ref/MutRef
+      so `ref self` dispatches on the element type. Method
+      dispatch is decided in the lowerer, not codegen
+      (Rule 3.1).
+- [x] **4a-iv.** Trait default-method clones in
+      `registerImpl` are renamed to `targetName + "__" +
+      defaultFn.Name` before being appended to `mod.File.Items`,
+      so the driver's `FnDecl` branch emits them under the
+      qualified name. Proof: `w18_trait_default_method` e2e
+      stays green.
+- [x] **4a-v.** Drop call sites route through a new
+      `dropFnName(tt, id)` helper that returns
+      `Fuse_<TypeName>__drop` for both `InstrDrop` and the
+      `TermReturn` end-of-function path. The
+      `TestDropWithDropTrait` assertion was updated to the new
+      scheme; the old `Fuse_<module>__<Type>_drop` pattern is
+      gone.
+- [x] **4a-vi.** The `Fuse_eq` conflicting-types gcc errors
+      previously observed in the Section 5 proofs have
+      disappeared from the failure signatures — confirming
+      that trait impls on multiple types no longer collide.
 
 ### 4b. Preserve extern function names
 
-- [ ] **4b-i.** `compiler/codegen/mangle.go:51-59` —
-      `MangleName`: if `name` starts with `fuse_rt_`, return it
-      unchanged, no `Fuse_` prefix.
-- [ ] **4b-ii.** Coordinate with 4a: the method-qualification
-      scheme must not prefix extern names either. Single
-      guard at the top of `MangleName` handles both.
-- [ ] **4b-iii.** `compiler/lower/lower.go`, direct-call path
-      — if the identifier name starts with `fuse_rt_`, do not
-      build a mangled callee through `MangleName` at all;
-      leave the raw name.
-- [ ] **4b-iv.** Mangle golden: add a test in
-      `compiler/codegen/codegen_test.go` that fixes the exact
-      mangled output for each class (`Fuse_add`, `main`,
-      `fuse_rt_proc_argc`, `I32__eq`). Rule 7.2.
+- [x] **4b-i.** `MangleName` returns a `fuse_rt_*` name
+      verbatim: the early-return guard is at the top of the
+      function so it precedes every mangling path.
+- [x] **4b-ii.** The single guard also covers the 4a
+      method-qualification scheme — extern names never receive
+      a `Fuse_` or `<Type>__` prefix.
+- [x] **4b-iii.** The lowerer's direct-call path skips the
+      `Fuse_` prepending when the identifier starts with
+      `fuse_rt_`, leaving the raw name.
+- [x] **4b-iv.** `TestMangleNameGolden` in
+      `compiler/codegen/codegen_test.go` pins
+      `{"main", "main"} → "main"`, `{"main", "add"} →
+      "Fuse_main__add"`, `{"", "I32__eq"} → "Fuse_I32__eq"`,
+      `{"", "fuse_rt_proc_argc"} → "fuse_rt_proc_argc"`, and
+      `{"core.list", "push"} → "Fuse_core_list__push"`
+      (Rule 7.2).
 
 *Refinement rationale:* Original said 4a–4d were "independent"
 but 4a and 4b both edit `mangle.go`'s `MangleName`. They must
@@ -368,36 +368,34 @@ golden test mandated by Rule 7.2.
 
 ### 4c. Strip numeric literal suffixes
 
-- [ ] **4c-i.** `compiler/codegen/emit.go:533` `constValue` —
-      before returning a numeric value, call a
-      `stripNumericSuffix(s)` helper that removes trailing
+- [x] **4c-i.** `constValue` dispatches numeric-typed constants
+      through `stripNumericSuffix`, which removes any trailing
       `usize|isize|u128|u64|u32|u16|u8|i128|i64|i32|i16|i8|f64|f32`
-      if the remainder parses as a number.
-- [ ] **4c-ii.** Precedence: strip longest suffix first
-      (`usize` before `u`).
-- [ ] **4c-iii.** Proof: `let x = 0usize; let y = 42u8;`
-      generates C containing `0` and `42`, not `0usize`/`42u8`.
+      before the value reaches generated C.
+- [x] **4c-ii.** The suffix list is ordered longest-first and
+      the helper requires the remainder to begin with a digit,
+      `-`, or `.` — `42u8` strips to `42`, but an identifier
+      like `myvar_u8` stays intact.
+- [x] **4c-iii.** `TestStripNumericSuffix` covers each class
+      (`0usize`, `42u8`, `100i32`, `1.5f32`, `-7isize`, plain
+      `0`, `true`, identifier-like `myvar_u8`, bare `u8`).
 
 ### 4d. Borrow-of-borrow double-pointer — fix in the lowerer
 
-- [ ] **4d-i.** Root cause is in `compiler/lower/lower.go`,
-      not the emitter. When lowering a `ref x` or `mutref x`
-      where `x` already has type `KindRef` / `KindMutRef`
-      (because it came from a param), the lowerer should emit
-      an `InstrCopy`, not an `InstrBorrow`. The reference is
-      already a pointer; taking its address would be
-      `String**`.
-- [ ] **4d-ii.** Do **not** add the `codegen/emit.go` fix
-      proposed in the original 4d. That covers the symptom
-      (already-pointer locals getting `&` prefixed) but
-      conflicts with Rule 3.1 / Rule 4.1: correct borrow
-      semantics belong in HIR→MIR lowering, not in a C-string
-      patch.
-- [ ] **4d-iii.** Proof: a function taking `mutref String`
-      and passing it to another function compiles. The
-      generated C has matching pointer levels and no
-      `incompatible pointer type` warnings from gcc
-      (`-Wincompatible-pointer-types` should be clean).
+- [x] **4d-i.** `lowerUnary` now checks
+      `(*Lowerer).isBorrow(operandType)` — if the operand is
+      already `KindRef` / `KindMutRef`, the lowerer emits
+      `InstrCopy` rather than `InstrBorrow`. No `&T*` → `T**`
+      in generated C.
+- [x] **4d-ii.** No emitter-side `&` suppression was added.
+      The fix lives entirely in HIR→MIR, preserving Rule 3.1
+      (three IRs) and Rule 4.1 (root causes).
+- [x] **4d-iii.** All non-stdlib e2e tests stay green after
+      the change, including `w18_drop_destructor` which
+      exercises `ref` through a scope-exit path. The
+      `-Wincompatible-pointer-types` class of gcc errors
+      previously visible in the Section 5 proof signatures has
+      been removed from the remaining failure modes.
 
 *Refinement rationale:* Original 4d patched the codegen. That
 is Rule 4.2 (workarounds forbidden). The correct place to

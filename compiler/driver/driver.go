@@ -181,12 +181,21 @@ func Build(opts BuildOptions) *BuildResult {
 				if monomorph.IsGenericImpl(it) {
 					continue
 				}
+				targetName := implTargetName(it)
 				for _, implItem := range it.Items {
 					fn, ok := implItem.(*ast.FnDecl)
 					if !ok || fn.Body == nil {
 						continue
 					}
 					hirFn := buildHIRFunction(hirBuilder, tt, checker, mod.Path.String(), fn)
+					// Qualify the method name with the target type so trait
+					// impls for different types do not collide at the C layer
+					// (task 4a: `impl Equatable : I32 { fn eq }` lowers to
+					// `I32__eq` rather than a bare `eq`). Leave the name alone
+					// when there is no resolvable target (e.g. malformed impl).
+					if targetName != "" {
+						hirFn.Name = targetName + "__" + hirFn.Name
+					}
 					_, liveDiags := liveness.RunAll(hirFn)
 					result.Errors = append(result.Errors, liveDiags...)
 					mirFn := lowerer.LowerFunction(hirFn)
@@ -378,6 +387,17 @@ func hasErrors(errs []diagnostics.Diagnostic) bool {
 		}
 	}
 	return false
+}
+
+// implTargetName returns the last-segment name of an impl target (e.g.
+// "I32" for `impl Equatable : I32`, "List" for `impl[T] List[T]`).
+// Returns "" for malformed impls.
+func implTargetName(impl *ast.ImplDecl) string {
+	pt, ok := impl.Target.(*ast.PathType)
+	if !ok || len(pt.Segments) == 0 {
+		return ""
+	}
+	return pt.Segments[len(pt.Segments)-1]
 }
 
 // injectPrelude populates each non-stdlib module's symbol table with the

@@ -377,9 +377,9 @@ func (e *Emitter) emitInstr(fn *mir.Function, instr *mir.Instr) {
 		}
 		if e.DropTypes[instr.Type] {
 			// Type has a Drop implementation — call its destructor.
-			ty := MangleType(e.Types, instr.Type)
+			// Match the 4a method-name scheme: Fuse_<TypeName>__drop.
 			e.writeIndent()
-			e.writef("%s_drop(&%s);", ty, e.localName(instr.Src))
+			e.writef("%s(&%s);", dropFnName(e.Types, instr.Type), e.localName(instr.Src))
 			e.writeln("")
 		}
 		// Types without Drop: no-op.
@@ -510,10 +510,11 @@ func (e *Emitter) emitTerminator(fn *mir.Function, term *mir.Terminator) {
 	switch term.Kind {
 	case mir.TermReturn:
 		// Emit drop calls for named locals with Drop implementations before returning.
+		// The destructor name matches the 4a method-qualification scheme.
 		for _, l := range fn.Locals[len(fn.Params):] {
 			if e.DropTypes[l.Type] && l.Name != "" {
 				e.writeIndent()
-				e.writef("Fuse_drop(&%s);", e.localName(l.Id))
+				e.writef("%s(&%s);", dropFnName(e.Types, l.Type), e.localName(l.Id))
 				e.writeln("")
 			}
 		}
@@ -625,6 +626,41 @@ func (e *Emitter) constValue(value string, ty typetable.TypeId) string {
 	case typetable.KindEnum, typetable.KindTuple:
 		// Contract 5: typed aggregate zero-initializer.
 		return fmt.Sprintf("(%s){0}", MangleType(e.Types, ty))
+	case typetable.KindInt, typetable.KindUint, typetable.KindFloat:
+		return stripNumericSuffix(value)
+	}
+	return value
+}
+
+// stripNumericSuffix removes a trailing Fuse numeric-literal suffix from a
+// constant value string. Fuse allows `0usize`, `42u8`, `1.5f32`, etc., but
+// those suffixes are not valid C integer-literal syntax and produce
+// "invalid suffix" gcc errors. The checker has already proven the value
+// belongs to a numeric type, so the suffix is redundant in C.
+//
+// Longer suffixes are stripped first (usize before u, isize before i,
+// u128 before u32, etc.) to avoid partial matches.
+func stripNumericSuffix(value string) string {
+	suffixes := []string{
+		"usize", "isize",
+		"u128", "u64", "u32", "u16",
+		"i128", "i64", "i32", "i16",
+		"f64", "f32",
+		"u8", "i8",
+	}
+	for _, s := range suffixes {
+		if len(value) <= len(s) {
+			continue
+		}
+		if strings.HasSuffix(value, s) {
+			remainder := value[:len(value)-len(s)]
+			// Only strip if the remainder still parses as a number-shaped
+			// token (starts with a digit, `-`, or `.`). Guards against a
+			// future identifier that coincidentally ends in `u8`, etc.
+			if len(remainder) > 0 && (remainder[0] == '-' || remainder[0] == '.' || (remainder[0] >= '0' && remainder[0] <= '9')) {
+				return remainder
+			}
+		}
 	}
 	return value
 }

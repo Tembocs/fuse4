@@ -90,6 +90,50 @@ func TestMangleNameNoModule(t *testing.T) {
 	}
 }
 
+// TestMangleNameGolden pins the exact mangled output for each name class.
+// Rule 7.2 (stable mangling) — future changes to method-qualification (4a)
+// or extern passthrough (4b) must not silently shift these strings.
+func TestMangleNameGolden(t *testing.T) {
+	cases := []struct{ module, name, want string }{
+		{"main", "main", "main"},                        // C entry point, never prefixed
+		{"main", "add", "Fuse_main__add"},               // module-qualified user fn
+		{"", "add", "Fuse_add"},                         // no-module fallback
+		{"", "I32__eq", "Fuse_I32__eq"},                 // trait-impl method (task 4a)
+		{"", "fuse_rt_proc_argc", "fuse_rt_proc_argc"},  // extern runtime (task 4b)
+		{"core.list", "push", "Fuse_core_list__push"},   // dotted module
+	}
+	for _, c := range cases {
+		got := MangleName(c.module, c.name)
+		if got != c.want {
+			t.Errorf("MangleName(%q, %q) = %q, want %q", c.module, c.name, got, c.want)
+		}
+	}
+}
+
+// TestStripNumericSuffix fixes the behaviour of the task 4c helper. Fuse
+// allows `0usize`, `42u8`, `1.5f32` etc. but those suffixes are not
+// valid C literal syntax. The emitter must strip them before constValue
+// feeds them into generated C.
+func TestStripNumericSuffix(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"0usize", "0"},
+		{"42u8", "42"},
+		{"100i32", "100"},
+		{"9223372036854775807i64", "9223372036854775807"},
+		{"1.5f32", "1.5"},
+		{"-7isize", "-7"},
+		{"0", "0"},                // no suffix, unchanged
+		{"true", "true"},          // non-numeric stays put
+		{"myvar_u8", "myvar_u8"},  // identifier that happens to end in "_u8" — do not strip
+		{"u8", "u8"},              // just the suffix itself → unchanged (no preceding digits)
+	}
+	for _, c := range cases {
+		if got := stripNumericSuffix(c.in); got != c.want {
+			t.Errorf("stripNumericSuffix(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // ===== Phase 01: Type emission before use (Contract 5) =====
 
 func TestCompositeTypesEmittedBeforeFunctions(t *testing.T) {
@@ -427,7 +471,10 @@ func TestDropWithDropTrait(t *testing.T) {
 	})
 
 	src := emitOneWithDropTypes(t, fn, tt, map[typetable.TypeId]bool{sty: true})
-	if !strings.Contains(src, "Fuse_m__Resource_drop(&_l0)") {
+	// Task 4a: Drop call is target-qualified (`Fuse_<TypeName>__drop`)
+	// rather than the old `Fuse_<module>__<Type>_drop`. The declaring
+	// module is already encoded in the impl method's own mangle.
+	if !strings.Contains(src, "Fuse_Resource__drop(&_l0)") {
 		t.Errorf("Drop trait type should emit destructor call, got:\n%s", src)
 	}
 }

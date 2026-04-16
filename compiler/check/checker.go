@@ -582,10 +582,15 @@ func (c *Checker) registerImpl(mod *resolve.Module, impl *ast.ImplDecl) {
 						continue
 					}
 					// Clone the default method and register it for the target type.
+					// The clone's AST name is already target-qualified so it
+					// matches the method-call name scheme from task 4a. The
+					// driver's FnDecl branch would otherwise emit it under the
+					// trait's bare method name and collide with other impls.
+					qualifiedName := targetName + "__" + defaultFn.Name
 					cloned := &ast.FnDecl{
 						Span:       defaultFn.Span,
 						Public:     defaultFn.Public,
-						Name:       defaultFn.Name,
+						Name:       qualifiedName,
 						Params:     defaultFn.Params,
 						ReturnType: defaultFn.ReturnType,
 						Body:       defaultFn.Body,
@@ -593,9 +598,9 @@ func (c *Checker) registerImpl(mod *resolve.Module, impl *ast.ImplDecl) {
 					// Register as method on target type.
 					params := c.resolveImplParamTypes(cloned.Params, targetType)
 					ret := c.resolveTypeExprOr(cloned.ReturnType, c.Types.Unit)
-					key := targetName + "." + cloned.Name
+					key := targetName + "." + defaultFn.Name
 					c.funcTypes[key] = c.Types.InternFunc(params, ret)
-					qualKey := mod.Path.String() + "." + cloned.Name
+					qualKey := mod.Path.String() + "." + qualifiedName
 					c.funcTypes[qualKey] = c.Types.InternFunc(params, ret)
 
 					// Add to the module's items so the driver compiles it.

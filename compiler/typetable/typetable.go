@@ -353,3 +353,47 @@ func (tt *TypeTable) IsResolved(id TypeId) bool {
 	e := tt.Get(id)
 	return e.Kind != KindUnknown && e.Kind != KindGenericParam
 }
+
+// HasGenericParam reports whether a type transitively references a
+// KindGenericParam entry. Used by the backend to skip generic templates
+// that must not reach C output (Rule 3.9; see learning-log L021).
+//
+// This is the single source of truth for "is this type a generic template."
+// It walks pointer/borrow/slice/array/tuple/struct/enum/channel/func
+// compositions through Elem, Fields, TypeArgs, and ReturnType.
+func (tt *TypeTable) HasGenericParam(id TypeId) bool {
+	return tt.hasGenericParamVisit(id, map[TypeId]bool{})
+}
+
+func (tt *TypeTable) hasGenericParamVisit(id TypeId, seen map[TypeId]bool) bool {
+	if id == InvalidTypeId {
+		return false
+	}
+	if seen[id] {
+		return false
+	}
+	seen[id] = true
+	e := tt.Get(id)
+	if e.Kind == KindGenericParam {
+		return true
+	}
+	if e.Elem != InvalidTypeId && tt.hasGenericParamVisit(e.Elem, seen) {
+		return true
+	}
+	for _, f := range e.Fields {
+		if tt.hasGenericParamVisit(f, seen) {
+			return true
+		}
+	}
+	for _, a := range e.TypeArgs {
+		if tt.hasGenericParamVisit(a, seen) {
+			return true
+		}
+	}
+	if e.Kind == KindFunc {
+		if tt.hasGenericParamVisit(e.ReturnType, seen) {
+			return true
+		}
+	}
+	return false
+}

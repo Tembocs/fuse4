@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -1030,6 +1031,42 @@ func findRuntimeLib() string {
 
 func hasCompileErrors(result *driver.BuildResult) bool {
 	return len(result.Errors) > 0
+}
+
+// TestSection2NoGenericParamLeakage (W18-P11-T02 regression):
+// generated C from any auto-loaded-stdlib build must contain no
+// identifiers whose suffix is a lone generic-param name — the
+// "Fuse_*__T" pattern L021 identified. Defends against the
+// generic-template-leaks-into-C class of bugs.
+func TestSection2NoGenericParamLeakage(t *testing.T) {
+	stdlibRoot := findStdlibRoot()
+	if stdlibRoot == "" {
+		t.Skip("stdlib not found")
+	}
+	// Minimal user program that references a generic stdlib type.
+	// We don't need this to link — we inspect result.CSource before
+	// the link step is even attempted.
+	sources := map[string][]byte{
+		"main": []byte(`fn main() -> I32 { return 0; }`),
+	}
+	result := driver.Build(driver.BuildOptions{
+		Sources:    sources,
+		StdlibRoot: stdlibRoot,
+		// No OutputPath — skip compile+link; we only need CSource.
+	})
+	if result.CSource == "" {
+		// Compile may have bailed early for reasons unrelated to
+		// leakage. Skip rather than false-fail.
+		t.Skip("no C source produced; nothing to inspect")
+	}
+	// Match identifiers whose final segment after the last "__" is
+	// a lone single-letter generic-param name (T, U, V, K, E) not
+	// followed by additional identifier characters. This is the
+	// L021 signature of a leaked generic parameter.
+	pattern := regexp.MustCompile(`\bFuse_[A-Za-z0-9_]*__([TUVKE])\b`)
+	if m := pattern.FindString(result.CSource); m != "" {
+		t.Errorf("generic-param leak in generated C: %q\n(full output truncated for brevity)", m)
+	}
 }
 
 // findStdlibRoot returns an absolute path to the stdlib directory by

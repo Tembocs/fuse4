@@ -465,6 +465,69 @@ func TestDropUnitErased(t *testing.T) {
 	}
 }
 
+// ===== Section 2: generic template filter (L021) =====
+
+// A MIR function whose params/locals/return type transitively reference
+// a KindGenericParam is a template — it must produce no C output.
+// Defends against regressions in which the driver's generic-original
+// filter stops catching something; this is the backstop.
+func TestGenericFunctionNotEmitted(t *testing.T) {
+	tt := typetable.New()
+	gp := tt.InternGenericParam("core.list", "T")
+
+	// fn identity[T](x: T) -> T { ... } — template shape, not a
+	// specialization. The emitter must emit no forward decl, no body,
+	// no struct for T.
+	params := []mir.Local{{Id: 0, Name: "x", Type: gp}}
+	b := mir.NewBuilder("identity", params, gp)
+	b.TermReturn(0)
+	fn := b.Build()
+
+	src := emitOne(t, fn, tt)
+	if strings.Contains(src, "identity") {
+		t.Errorf("generic function identity must not reach C output:\n%s", src)
+	}
+	// Also: no mangled reference to the generic param.
+	if strings.Contains(src, "__T;") || strings.Contains(src, "__T ") {
+		t.Errorf("generic param name T must not appear in C output:\n%s", src)
+	}
+}
+
+// A generic struct type (Fields contain KindGenericParam, OR the type
+// itself has TypeArgs that are generic params) must not produce a C
+// typedef. Only its monomorphized specializations do.
+func TestGenericStructTypedefNotEmitted(t *testing.T) {
+	tt := typetable.New()
+	gp := tt.InternGenericParam("core.list", "T")
+
+	// Simulate `struct List[T] { items: T }` — the base template.
+	listTy := tt.InternStruct("core.list", "List", []typetable.TypeId{gp})
+	tt.SetStructFields(listTy, []string{"items"}, []typetable.TypeId{gp})
+
+	// A non-generic function that mentions the generic type only in a
+	// local variable — forces the emitter to at least consider it.
+	// Since we also avoid the path where a generic function would be
+	// skipped entirely, use a non-generic outer function.
+	b := mir.NewBuilder("entry", nil, tt.Unit)
+	_ = b.NewLocal("l", listTy) // carries the generic-template TypeId
+	tmp := b.NewTemp(tt.Unit)
+	b.EmitConst(tmp, tt.Unit, "()")
+	b.TermReturn(tmp)
+	fn := b.Build()
+
+	src := emitOne(t, fn, tt)
+	// No typedef for the generic template should appear.
+	if strings.Contains(src, "typedef struct Fuse_core_list__List") {
+		t.Errorf("generic struct template must not produce a typedef:\n%s", src)
+	}
+	// The function shouldn't have a local of a non-existent type either,
+	// but current behavior still emits the local var declaration. What
+	// must NOT happen: a typedef with the generic param name leaking.
+	if strings.Contains(src, "__T;") {
+		t.Errorf("generic param T leaked into C output:\n%s", src)
+	}
+}
+
 // ===== Channel type emission =====
 
 func TestChannelTypeEmission(t *testing.T) {

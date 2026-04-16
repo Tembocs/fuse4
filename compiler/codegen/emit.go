@@ -66,7 +66,31 @@ func (e *Emitter) Emit(functions []*mir.Function) string {
 
 // --- type collection and emission (Contract 5: emit before use) ---
 
+// fnHasGenericParam reports whether any param, local, or return type of
+// a MIR function references a generic parameter. A function that still
+// carries unresolved generic params is a template and must never reach
+// C output — only specializations do (see learning-log L021).
+func (e *Emitter) fnHasGenericParam(fn *mir.Function) bool {
+	if e.Types.HasGenericParam(fn.ReturnType) {
+		return true
+	}
+	for _, p := range fn.Params {
+		if e.Types.HasGenericParam(p.Type) {
+			return true
+		}
+	}
+	for _, l := range fn.Locals {
+		if e.Types.HasGenericParam(l.Type) {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *Emitter) collectTypes(fn *mir.Function) {
+	if e.fnHasGenericParam(fn) {
+		return // generic template — no C for it
+	}
 	// Emit return type.
 	e.emitTypeDefIfNeeded(fn.ReturnType)
 	// Emit param types.
@@ -84,6 +108,20 @@ func (e *Emitter) emitTypeDefIfNeeded(id typetable.TypeId) {
 		return
 	}
 	te := e.Types.Get(id)
+
+	// Generic param itself: nothing to emit. Mark as "emitted" so
+	// composite types containing it short-circuit later.
+	if te.Kind == typetable.KindGenericParam {
+		e.emitted[id] = true
+		return
+	}
+	// Struct or enum that transitively carries a generic param: generic
+	// template, not a concrete specialization. Do not emit.
+	if (te.Kind == typetable.KindStruct || te.Kind == typetable.KindEnum) &&
+		e.Types.HasGenericParam(id) {
+		e.emitted[id] = true
+		return
+	}
 
 	switch te.Kind {
 	case typetable.KindStruct:
@@ -175,6 +213,9 @@ func (e *Emitter) emitTypeDefIfNeeded(id typetable.TypeId) {
 // --- function emission ---
 
 func (e *Emitter) emitFnForwardDecl(fn *mir.Function) {
+	if e.fnHasGenericParam(fn) {
+		return // generic template, not emitted
+	}
 	retC := e.returnTypeC(fn.ReturnType)
 	nameC := MangleName("", fn.Name)
 	paramsC := e.paramsC(fn.Params)
@@ -196,6 +237,9 @@ func (e *Emitter) calleeName(id mir.LocalId) string {
 }
 
 func (e *Emitter) emitFunction(fn *mir.Function) {
+	if e.fnHasGenericParam(fn) {
+		return // generic template, not emitted
+	}
 	e.constNames = make(map[mir.LocalId]string)
 	// Track which locals have borrow (ref/mutref) types for auto-deref.
 	e.borrowLocals = make(map[mir.LocalId]bool)

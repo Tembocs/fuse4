@@ -1,6 +1,4 @@
-/// Printable enables human-readable string formatting.
-/// Equivalent to Display in other languages.
-
-pub trait Printable {
-    fn fmt(ref self, f: mutref Formatter) -> Result;
-}
+/// Printable trait. Canonical definition now lives in core.fmt (same
+/// module as Formatter) to avoid a cyclic import — see learning-log L021.
+/// This file intentionally declares no items. Prefer
+/// `import core.fmt.Printable` at call sites.

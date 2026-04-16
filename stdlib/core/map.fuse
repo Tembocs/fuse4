@@ -2,6 +2,10 @@
 /// Uses open addressing with linear probing.
 /// Keys must be hashable (implement a hash() -> U64 method).
 
+import core.string.String;
+import core.option.Option;
+import core.result.Result;
+
 pub struct Map[K, V] {
     keys: Ptr[K],
     vals: Ptr[V],

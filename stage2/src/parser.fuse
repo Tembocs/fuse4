@@ -4,6 +4,10 @@
 import core.string.String;
 import core.list.List;
 import core.option.Option;
+import stage2.token.Token;
+import stage2.token.TokenKind;
+import stage2.ast.AstFile;
+import stage2.ast.AstBlock;
 
 /// Parser produces an AST from a token stream.
 pub struct Parser {

@@ -1,4 +1,10 @@
 /// Option[T] represents an optional value: either Some(T) or None.
+///
+/// The String import below is needed so monomorph specializations like
+/// Option[String] see the concrete type in this module's resolve scope.
+/// See learning-log L021.
+
+import core.string.String;
 
 pub enum Option[T] {
     Some(T),

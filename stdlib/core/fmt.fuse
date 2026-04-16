@@ -1,4 +1,14 @@
 /// Formatting module: Formatter for building formatted output.
+///
+/// This module also owns the Printable and Debuggable traits plus the
+/// Printable impl for String. Keeping them here (rather than spreading
+/// them across core.printable, core.debuggable, and core.string) avoids
+/// an import cycle: core.fmt's Formatter uses String, and the traits use
+/// Formatter, so any module that both defined a trait and imported it
+/// back from core.fmt would create one. See learning-log L021.
+
+import core.string.String;
+import core.result.Result;
 
 /// Formatter is a buffer for building formatted output.
 pub struct Formatter {
@@ -55,5 +65,27 @@ impl Formatter {
     /// Return the accumulated string.
     pub fn finish(owned self) -> String {
         return self.buf;
+    }
+}
+
+/// Printable enables human-readable string formatting.
+/// Equivalent to Display in other languages.
+pub trait Printable {
+    fn fmt(ref self, f: mutref Formatter) -> Result;
+}
+
+/// Debuggable enables debug-oriented string formatting.
+/// Equivalent to Debug in other languages.
+pub trait Debuggable {
+    fn debug_fmt(ref self, f: mutref Formatter) -> Result;
+}
+
+/// Printable impl for String. Lives here (not in core.string) so that
+/// core.string does not import core.fmt — which would create a cycle
+/// through Formatter's own String field.
+impl Printable : String {
+    fn fmt(ref self, f: mutref Formatter) -> Result {
+        f.write_str(ref self);
+        return Ok(());
     }
 }

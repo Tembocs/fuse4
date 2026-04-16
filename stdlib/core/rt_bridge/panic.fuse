@@ -1,6 +1,8 @@
 /// Runtime bridge: panic and abort.
 /// This file contains unsafe calls to the bootstrap runtime.
 
+import core.string.String;
+
 /// Panic with a message. Does not return.
 pub fn panic(message: ref String) {
     unsafe {

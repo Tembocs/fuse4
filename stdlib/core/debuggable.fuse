@@ -1,6 +1,4 @@
-/// Debuggable enables debug-oriented string formatting.
-/// Equivalent to Debug in other languages.
-
-pub trait Debuggable {
-    fn debug_fmt(ref self, f: mutref Formatter) -> Result;
-}
+/// Debuggable trait. Canonical definition now lives in core.fmt (same
+/// module as Formatter) to avoid a cyclic import — see learning-log L021.
+/// This file intentionally declares no items. Prefer
+/// `import core.fmt.Debuggable` at call sites.

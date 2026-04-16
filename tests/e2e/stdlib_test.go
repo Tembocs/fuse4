@@ -56,14 +56,73 @@ func TestStdlibCoreCompiles(t *testing.T) {
 		"stdlib/core/rt_bridge/intrinsics.fuse",
 	}
 
+	// Each core file is compiled alongside its siblings so explicit imports
+	// (e.g. `import core.option.Option` in list.fuse) can resolve. Before
+	// Section 3 of STDLIB_INTEGRATION_TASKS.md these files used phantom
+	// types instead of imports, so standalone compilation worked; now they
+	// state their real dependencies and need the full graph.
+	allCore := map[string]*ast.File{}
+	for _, f := range coreFiles {
+		src, err := os.ReadFile(filepath.Join(root, f))
+		if err != nil {
+			continue
+		}
+		parsed, errs := parse.Parse(filepath.Base(f), src)
+		if len(errs) > 0 {
+			continue
+		}
+		allCore[coreModuleNameFor(f)] = parsed
+	}
 	for _, f := range coreFiles {
 		t.Run(filepath.Base(f), func(t *testing.T) {
-			src, err := os.ReadFile(filepath.Join(root, f))
-			if err != nil {
-				t.Fatalf("read: %v", err)
-			}
-			compileStdlibFile(t, filepath.Base(f), src)
+			compileStdlibFileWithDeps(t, f, allCore)
 		})
+	}
+}
+
+// coreModuleNameFor maps a stdlib/core/ file path to its module name.
+func coreModuleNameFor(path string) string {
+	base := filepath.Base(path)
+	base = base[:len(base)-5]
+	// Handle rt_bridge subdir — it maps to core.rt_bridge.<name>.
+	if filepath.Base(filepath.Dir(path)) == "rt_bridge" {
+		return "core.rt_bridge." + base
+	}
+	return "core." + base
+}
+
+// compileStdlibFileWithDeps type-checks one stdlib file alongside a set
+// of already-parsed sibling modules so that cross-module imports resolve.
+func compileStdlibFileWithDeps(t *testing.T, path string, all map[string]*ast.File) {
+	t.Helper()
+	target := coreModuleNameFor(path)
+	parsed, ok := all[target]
+	if !ok {
+		t.Fatalf("file %q missing from dep set", path)
+	}
+
+	files := map[string]*ast.File{target: parsed}
+	for k, v := range all {
+		if k == target {
+			continue
+		}
+		files[k] = v
+	}
+
+	graph := resolve.BuildModuleGraph(files)
+	resolver := resolve.NewResolver(graph)
+	resolver.Resolve()
+	if len(resolver.Errors) > 0 {
+		t.Fatalf("resolve: %v", resolver.Errors[0])
+	}
+
+	monomorph.SpecializeModules(graph)
+
+	tt := typetable.New()
+	chk := check.NewChecker(tt, graph)
+	chk.Check()
+	if len(chk.Errors) > 0 {
+		t.Fatalf("check: %v", chk.Errors[0])
 	}
 }
 
@@ -157,32 +216,6 @@ func TestStdlibFullCompiles(t *testing.T) {
 	}
 }
 
-func compileStdlibFile(t *testing.T, name string, src []byte) {
-	t.Helper()
-	modName := name[:len(name)-5] // strip .fuse
-
-	parsed, errs := parse.Parse(name, src)
-	if len(errs) > 0 {
-		t.Fatalf("parse: %v", errs[0])
-	}
-
-	files := map[string]*ast.File{modName: parsed}
-	graph := resolve.BuildModuleGraph(files)
-	resolver := resolve.NewResolver(graph)
-	resolver.Resolve()
-	if len(resolver.Errors) > 0 {
-		t.Fatalf("resolve: %v", resolver.Errors[0])
-	}
-
-	monomorph.SpecializeModules(graph)
-
-	tt := typetable.New()
-	chk := check.NewChecker(tt, graph)
-	chk.Check()
-	if len(chk.Errors) > 0 {
-		t.Fatalf("check: %v", chk.Errors[0])
-	}
-}
 
 // TestStdlibExtCompiles verifies that stdlib/ext/ files compile with their
 // core and full dependencies provided.

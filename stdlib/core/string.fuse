@@ -1,4 +1,9 @@
 /// UTF-8 string type and operations.
+///
+/// This module sits at the root of the core tier. It must not depend on
+/// core.fmt or any module that depends on String — those modules import
+/// this one (Rule 5.4). The `impl Printable : String` lives in core.fmt
+/// to avoid a cyclic import (see learning-log L021 on module identity).
 
 /// String is an owned, heap-allocated UTF-8 string.
 pub struct String {
@@ -198,9 +203,3 @@ impl Clone : String {
     }
 }
 
-impl Printable : String {
-    fn fmt(ref self, f: mutref Formatter) -> Result {
-        f.write_str(ref self);
-        return Ok(());
-    }
-}

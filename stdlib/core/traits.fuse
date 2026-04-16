@@ -1,5 +1,7 @@
 /// Core traits that don't have their own module.
 
+import core.option.Option;
+
 /// Default enables construction of a default value.
 pub trait Default {
     fn default() -> Self;

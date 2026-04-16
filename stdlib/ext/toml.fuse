@@ -7,6 +7,7 @@
 import core.result.Result;
 import core.option.Option;
 import core.list.List;
+import core.string.String;
 
 /// A key-value entry in a TOML document.
 struct TomlEntry {

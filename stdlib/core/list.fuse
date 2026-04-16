@@ -1,5 +1,9 @@
 /// List is a growable, heap-allocated array.
 
+import core.string.String;
+import core.option.Option;
+import core.result.Result;
+
 pub struct List[T] {
     data: Ptr[T],
     len: USize,

@@ -1,5 +1,8 @@
 /// I32 — 32-bit signed integer type and trait implementations.
 
+import core.fmt.Formatter;
+import core.result.Result;
+
 impl Equatable : I32 {
     fn eq(ref self, other: ref Self) -> Bool { return self == other; }
     fn ne(ref self, other: ref Self) -> Bool { return self != other; }

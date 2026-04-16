@@ -5,6 +5,7 @@
 import core.string.String;
 import core.list.List;
 import core.option.Option;
+import stage2.token.Token;
 
 /// Lexer tokenizes Fuse source code.
 pub struct Lexer {

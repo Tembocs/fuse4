@@ -5,6 +5,10 @@
 import core.string.String;
 import core.list.List;
 import core.map.Map;
+import stage2.mir.MirFunction;
+import stage2.mir.Instr;
+import stage2.mir.Terminator;
+import stage2.typetable.TypeId;
 
 /// Emitter generates C11 source from MIR functions.
 pub struct Emitter {

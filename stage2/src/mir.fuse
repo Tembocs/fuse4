@@ -4,6 +4,8 @@
 
 import core.string.String;
 import core.list.List;
+import stage2.typetable.TypeId;
+import stage2.hir.HirFunction;
 
 /// LocalId identifies a local variable or temporary.
 pub type LocalId = I32;

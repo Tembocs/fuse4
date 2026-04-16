@@ -3,7 +3,7 @@
 /// Implements SHA-256 per FIPS 180-4. Pure computation, no runtime
 /// dependencies beyond memory allocation.
 
-
+import core.string.String;
 
 /// SHA-256 initial hash values (first 32 bits of fractional parts
 /// of the square roots of the first 8 primes).

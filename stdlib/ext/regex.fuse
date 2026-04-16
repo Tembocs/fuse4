@@ -9,6 +9,7 @@
 
 import core.result.Result;
 import core.option.Option;
+import core.string.String;
 
 /// A compiled regular expression.
 pub struct Regex {

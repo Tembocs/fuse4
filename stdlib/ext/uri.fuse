@@ -5,6 +5,7 @@
 
 import core.option.Option;
 import core.result.Result;
+import core.string.String;
 
 /// A parsed URI.
 pub struct Uri {

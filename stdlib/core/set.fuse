@@ -1,6 +1,8 @@
 /// Set is a hash set of unique values.
 /// Implemented as a thin wrapper around Map[T, Bool].
 
+import core.map.Map;
+
 pub struct Set[T] {
     inner: Map[T, Bool],
 }

@@ -5,6 +5,7 @@
 
 import core.string.String;
 import core.list.List;
+import stage2.typetable.TypeId;
 
 /// OwnershipKind classifies ownership context on an HIR node.
 pub enum OwnershipKind {

@@ -183,6 +183,14 @@ func (a *ast2hir) lowerExpr(e ast.Expr) hir.Expr {
 
 	switch e := e.(type) {
 	case *ast.LiteralExpr:
+		// `None` parses as a KwNone literal, not an IdentExpr. Lower it
+		// to an EnumInit so codegen emits a tagged struct with the None
+		// tag rather than a bare `None` identifier (which C does not
+		// resolve). Some(v) still goes through the CallExpr variant path.
+		if e.Token.Kind == lex.KwNone && a.checker != nil && a.checker.IsVariantConstructor("None") {
+			tag := a.checker.VariantTag("None")
+			return a.b.EnumInit(e.Span, "None", tag, nil, a.typeOf(e))
+		}
 		return a.b.Literal(e.Span, e.Token.Literal, a.typeOf(e))
 
 	case *ast.IdentExpr:

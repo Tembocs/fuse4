@@ -407,20 +407,98 @@ lowerer.
 These programs are the exit criteria. Each must compile, link,
 run, and produce the expected exit code or stdout.
 
-- [ ] **5a.** Struct with String fields:
-      `struct Config { name: String, version: String } ...`
-- [ ] **5b.** Struct with generic collection:
-      `struct Registry { entries: List[Entry] } ...` uses
-      `push`, `get`, `len`.
-- [ ] **5c.** `Result[String, String]` with `?` operator and
-      `match` on Ok/Err.
-- [ ] **5d.** `String.contains`, `String.starts_with`,
-      `String.byte_at`.
-- [ ] **5e.** `Map[String, I32]` with `insert`, `get`, `len`.
-- [ ] **5f.** `python test_all.py` — all 7 steps pass.
+Status after the Section 5 work below:
 
-Each of 5a–5e is an e2e test case in
-`tests/e2e/e2e_test.go` or a new `tests/e2e/real_programs_test.go`.
+- [x] **5a.** `struct Config { name: String, version: String }` —
+      compiles, links, runs, exits 42. String literals now intern
+      under `core.string`; struct-field layout and accessor typing
+      work through specialized types.
+- [x] **1b-i.** `stdlib_1b_i_println_auto_load` — green.
+      `println("hello")` compiles with the core-only auto-load,
+      DCE trims unused stdlib bodies, and the `println` builtin
+      reaches `fuse_rt_io_write_stdout`.
+- [x] **1b-ii.** `stdlib_1b_ii_user_shadows_core_option` — green.
+      Confirms the user-wins module shadow behaviour survives the
+      stricter checker.
+- [ ] **5b.** `struct Registry { entries: List[Entry] }` — red.
+      Static method call + DCE + spec method-name path reach the
+      `Fuse_List__Entry__push/get/new` symbols correctly, but the
+      generic `List[T].push` body has deeper codegen issues:
+      `Ptr.null()` types as `int` (no context-aware typing for the
+      builtin), `fuse_rt_mem_realloc` returns `Ptr[U8]` which
+      can't assign to `Ptr[Entry]` without a cast, and MIR
+      liveness leaves some `_lN` locals undeclared. These are
+      beyond Section 5 scope — the next wave is targeted list/map
+      body hygiene plus explicit cast emission.
+- [ ] **5c.** `Result[I32, String]` with `?` — red. Root cause:
+      tagged enums whose variants have different-typed payloads
+      (`Ok(I32)` vs `Err(String)`) collapse to a single `_f0` slot
+      picking the first variant's type. Fix requires C union
+      emission for multi-payload-type enums; cross-module code
+      that uses `Result[_, String]` hits the type-mismatch at
+      initialisation.
+- [ ] **5d.** `String.contains/starts_with/byte_at` — red.
+      String method specialization path works, but the MIR for
+      those methods leaves `_l42`/`_l46` locals undeclared
+      (liveness/builder skip in a branch). Needs a focused
+      lowerer audit for the match / branching patterns used in
+      those methods.
+- [ ] **5e.** `Map[String, I32]` with `insert`/`get`/`len` —
+      red for the same family of reasons as 5b (Map impl body
+      codegen gaps around Ptr handling and multi-variant enum
+      payloads via `Option[V]`).
+- [ ] **5f.** `python test_all.py` — deferred until the four
+      body-level codegen gaps above land.
+
+Each of 5a–5e is an e2e test case in `tests/e2e/e2e_test.go`.
+
+### What Section 5 delivered
+
+Section 5 focused on the compiler-level blockers that were common
+to all five proofs, leaving body-level stdlib bugs (Ptr null
+typing, tagged-union multi-payload layout, liveness gaps on
+stdlib match code) to a follow-up wave. Concretely:
+
+- Auto-load is scoped to `core/` only (language-guide §11.4 "on
+  demand" for full/ext) so user programs aren't dragged through
+  ext/argparse, ext/toml, ext/yaml, etc. on every compile.
+- `emitTypeDefIfNeeded` recurses into `KindRef`/`KindMutRef`/
+  `KindPtr` elements so `ref Option[I32]` param types pull the
+  `Option[I32]` typedef into the emission set.
+- Static method calls (`TypeName.method()`) lower cleanly:
+  `checkIdent` returns the nominal TypeId for struct/enum
+  symbols, the lowerer recognises the pattern via
+  `isStaticMethodCall` and emits `Fuse_<TypeName>__method` with
+  no receiver borrow. `Ptr.null()` is a compiler-builtin and
+  lowers to a null constant.
+- A call-graph DCE pass in the codegen emits only functions
+  reachable from `main` (including destructors via `InstrDrop`
+  and end-of-function `Drop` calls), so unreachable stdlib
+  bodies with pre-existing bugs no longer surface as C errors.
+- The monomorphizer's instantiation scanner walks struct field
+  types, enum payloads, fn params, and fn return types — not
+  just expression uses — so `struct Registry { entries: List[Entry] }`
+  registers the `List__Entry__*` specialisations. Original
+  generic decls are skipped so `List[T]` doesn't create a
+  `List__T__*` phantom.
+- String literals and the `println`/`print` builtins intern
+  `String` under `core.string` (matching the auto-loaded stdlib
+  module) rather than the bare `core` placeholder.
+- Variant lookup in `checkVariantConstructor` and type-name
+  lookup in `resolveTypeName` both fall through to a graph-wide
+  search so specialisations placed in a stdlib module can
+  resolve user types (`Entry`, `Token`, …) declared elsewhere.
+- `checkField` substitutes the base template's field types
+  through `TypeTable.SubstituteFields` when accessing a field on
+  a specialisation whose own fields are unset.
+- `isAssignableTo` permits same-(Kind, Name, Module) structs/
+  enums to unify regardless of TypeArgs — propagated expected
+  types (return-position struct lits, `None` literals, method
+  calls) give the real target type and full inference is a
+  later-wave job.
+- Enum variants without parens (`None`) lower to `EnumInit`
+  instead of a bare identifier, so codegen emits a tagged
+  struct literal rather than an undefined C name.
 
 ## 6. Regression coverage for the 18-commit band-aid spiral
 

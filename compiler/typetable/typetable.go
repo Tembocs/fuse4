@@ -290,8 +290,10 @@ func (tt *TypeTable) InternChannel(elem TypeId) TypeId {
 }
 
 // RegisterStringType sets up the String type with data pointer and length fields.
+// The module string matches `stdlib/core/string.fuse` (module `core.string`)
+// so a literal's nominal TypeId matches user-declared fields of type String.
 func (tt *TypeTable) RegisterStringType() TypeId {
-	strTy := tt.InternStruct("core", "String", nil)
+	strTy := tt.InternStruct("core.string", "String", nil)
 	ptrTy := tt.InternPtr(tt.U8)
 	tt.SetStructFields(strTy, []string{"data", "len"}, []TypeId{ptrTy, tt.USize})
 	return strTy

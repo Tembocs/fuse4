@@ -212,19 +212,117 @@ func SpecializeModules(graph *resolve.ModuleGraph) {
 
 // collectTypeInstantiations scans an AST item for concrete uses of generic types.
 // E.g., Some(42) implies Option[I32], Ok(v) implies Result[T, E].
+//
+// Beyond expression uses it also scans type expressions in struct fields,
+// function signatures, and impl targets — `struct Registry { entries:
+// List[Entry] }` must register `List[Entry]` even though no expression
+// ever constructs a List literal. Without this, the monomorphizer fails
+// to generate `List__Entry__new`/`push`/`get`, and the lowerer's static
+// or method call resolves to a non-existent symbol.
 func collectTypeInstantiations(item ast.Item, out *map[string][][]string, seen map[string]bool,
 	variantToEnum map[string]string, genericEnums map[string]*ast.EnumDecl) {
 	switch it := item.(type) {
 	case *ast.FnDecl:
+		// Generic fn originals reference their own params (`fn id[T](x: T)` —
+		// `T` is not a concrete type). Let the monomorphizer handle them
+		// via substitution and only scan concrete signatures here.
+		if len(it.GenericParams) == 0 {
+			for _, p := range it.Params {
+				collectTypeInstsFromTypeExpr(p.Type, out, seen)
+			}
+			collectTypeInstsFromTypeExpr(it.ReturnType, out, seen)
+		}
 		if it.Body != nil {
 			collectTypeInstsExpr(it.Body, out, seen, variantToEnum, genericEnums)
 		}
-	case *ast.ImplDecl:
-		for _, implItem := range it.Items {
-			if fn, ok := implItem.(*ast.FnDecl); ok && fn.Body != nil {
-				collectTypeInstsExpr(fn.Body, out, seen, variantToEnum, genericEnums)
+	case *ast.StructDecl:
+		if len(it.GenericParams) == 0 {
+			for _, f := range it.Fields {
+				collectTypeInstsFromTypeExpr(f.Type, out, seen)
 			}
 		}
+	case *ast.EnumDecl:
+		if len(it.GenericParams) == 0 {
+			for _, v := range it.Variants {
+				for _, pt := range v.Types {
+					collectTypeInstsFromTypeExpr(pt, out, seen)
+				}
+			}
+		}
+	case *ast.ImplDecl:
+		// Generic impl blocks like `impl[T] List[T]` contain many references
+		// to `T` which must not be collected as a type instantiation. The
+		// specialized copies appear as top-level FnDecls and are scanned
+		// through the FnDecl branch above once they are non-generic.
+		if len(it.GenericParams) == 0 {
+			collectTypeInstsFromTypeExpr(it.Target, out, seen)
+			for _, implItem := range it.Items {
+				if fn, ok := implItem.(*ast.FnDecl); ok {
+					for _, p := range fn.Params {
+						collectTypeInstsFromTypeExpr(p.Type, out, seen)
+					}
+					collectTypeInstsFromTypeExpr(fn.ReturnType, out, seen)
+					if fn.Body != nil {
+						collectTypeInstsExpr(fn.Body, out, seen, variantToEnum, genericEnums)
+					}
+				}
+			}
+		}
+	}
+}
+
+// collectTypeInstsFromTypeExpr walks a type expression recording any
+// PathType with concrete TypeArgs. Nested generics such as
+// `List[Option[I32]]` register both `List__Option_I32` and
+// `Option__I32`. Generic-param leaves (names that will be substituted
+// at monomorphization) are left alone — the scanner cannot
+// distinguish them from primitives here, but the specialization path
+// validates concreteness via monomorph.Context.Record at use time.
+func collectTypeInstsFromTypeExpr(te ast.TypeExpr, out *map[string][][]string, seen map[string]bool) {
+	if te == nil {
+		return
+	}
+	switch t := te.(type) {
+	case *ast.PathType:
+		if len(t.TypeArgs) > 0 && len(t.Segments) > 0 {
+			base := t.Segments[len(t.Segments)-1]
+			typeArgs := make([]string, 0, len(t.TypeArgs))
+			for _, a := range t.TypeArgs {
+				if ap, ok := a.(*ast.PathType); ok && len(ap.Segments) > 0 {
+					typeArgs = append(typeArgs, ap.Segments[len(ap.Segments)-1])
+				} else {
+					typeArgs = append(typeArgs, "")
+				}
+			}
+			// Skip if any arg failed to flatten — the spec can't be named.
+			nameable := true
+			for _, s := range typeArgs {
+				if s == "" {
+					nameable = false
+					break
+				}
+			}
+			if nameable {
+				key := base + "__" + strings.Join(typeArgs, "_")
+				if !seen[key] {
+					seen[key] = true
+					(*out)[base] = append((*out)[base], typeArgs)
+				}
+			}
+		}
+		for _, a := range t.TypeArgs {
+			collectTypeInstsFromTypeExpr(a, out, seen)
+		}
+	case *ast.TupleType:
+		for _, e := range t.Elems {
+			collectTypeInstsFromTypeExpr(e, out, seen)
+		}
+	case *ast.ArrayType:
+		collectTypeInstsFromTypeExpr(t.Elem, out, seen)
+	case *ast.SliceType:
+		collectTypeInstsFromTypeExpr(t.Elem, out, seen)
+	case *ast.PtrType:
+		collectTypeInstsFromTypeExpr(t.Elem, out, seen)
 	}
 }
 

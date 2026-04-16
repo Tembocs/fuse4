@@ -60,7 +60,7 @@ func Build(opts BuildOptions) *BuildResult {
 				diagnostics.Span{}, "standard library not found: set FUSE_STDLIB_ROOT or pass BuildOptions.StdlibRoot"))
 			return result
 		}
-		stdlibSources, err := LoadStdlib(root)
+		stdlibSources, err := LoadStdlibCore(root)
 		if err != nil {
 			result.Errors = append(result.Errors, diagnostics.Errorf(
 				diagnostics.Span{}, "standard library not found at %s: %s", root, err))

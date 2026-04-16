@@ -301,7 +301,36 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 	dest := l.b.NewTemp(n.Meta().Type)
 
 	if fe, ok := n.Callee.(*hir.FieldExpr); ok {
-		// Method call: obj.method(args) → call(Fuse_method, &obj, args...)
+		// Static method call: `TypeName.method(args)` — the "receiver" is
+		// the type itself, not a value. Emit a plain call to
+		// `Fuse_<TypeName>__<method>` without borrowing a receiver.
+		// Detected by the identifier's name matching the nominal type
+		// it resolves to (checkIdent returns the struct/enum TypeId for
+		// a type-name ident). `Ptr.null()` is handled below as a
+		// builtin since Ptr has no user-facing struct symbol.
+		if ident, ok := fe.Expr.(*hir.IdentExpr); ok {
+			if ident.Name == "Ptr" && fe.Name == "null" {
+				return l.lowerPtrNull(dest, n.Meta().Type)
+			}
+			if l.isStaticMethodCall(ident, fe.Expr.Meta().Type) {
+				var args []mir.LocalId
+				for _, a := range n.Args {
+					args = append(args, l.lowerExpr(a))
+				}
+				// For generic-type static methods like `List.new()` the
+				// return type carries the specialization's TypeArgs — use
+				// those to select the monomorphized callee name.
+				methodName := l.staticMethodCalleeName(fe.Expr.Meta().Type, fe.Name)
+				if specialized := l.specializedStaticName(n.Meta().Type, ident.Name, fe.Name); specialized != "" {
+					methodName = specialized
+				}
+				callee := l.b.NewTemp(l.Types.Unknown)
+				l.b.EmitConst(callee, l.Types.Unknown, methodName)
+				l.b.EmitCall(dest, callee, args, n.Meta().Type, false)
+				return dest
+			}
+		}
+		// Method call on a value: obj.method(args) → call(Fuse_method, &obj, args...)
 		recv := l.lowerExpr(fe.Expr)
 		recvType := fe.Expr.Meta().Type
 		refType := l.Types.InternRef(recvType)
@@ -384,6 +413,69 @@ func (l *Lowerer) lowerCall(n *hir.CallExpr) mir.LocalId {
 		args = append(args, l.lowerExpr(a))
 	}
 	l.b.EmitCall(dest, callee, args, n.Meta().Type, false)
+	return dest
+}
+
+// isStaticMethodCall reports whether a FieldExpr's receiver is a type
+// name rather than a value. The signal is: the receiver is an IdentExpr
+// whose checker-assigned type is a nominal KindStruct/KindEnum whose
+// declared Name matches the identifier's Name — that combination is only
+// produced by checkIdent's type-symbol path.
+//
+// For `let s: String = ...; s.new()` the ident name is "s" but the
+// type's Name is "String" — no match, treated as value-method call.
+// For `String.new()` both are "String" — treated as static.
+func (l *Lowerer) isStaticMethodCall(ident *hir.IdentExpr, ty typetable.TypeId) bool {
+	te := l.Types.Get(ty)
+	if te.Kind != typetable.KindStruct && te.Kind != typetable.KindEnum {
+		return false
+	}
+	return te.Name == ident.Name
+}
+
+// staticMethodCalleeName builds the C-level callee for a static method
+// call. Generic instantiations are ignored here because a static call
+// like `String.new()` names the base type, not a specialization; the
+// receiver type has no TypeArgs.
+func (l *Lowerer) staticMethodCalleeName(ty typetable.TypeId, methodName string) string {
+	te := l.Types.Get(ty)
+	if te.Name == "" {
+		return "Fuse_" + methodName
+	}
+	return "Fuse_" + te.Name + "__" + methodName
+}
+
+// specializedStaticName returns the monomorphized callee name when a
+// static call on a generic type (`List.new()`, `Map.new()`) can be
+// resolved to a specialization via the call's return type. Returns ""
+// when the return type is not a generic instantiation of `baseName` —
+// the non-specialized path handles that case.
+//
+// Example: `List.new()` whose context types the result as `List[Entry]`
+// produces `Fuse_List__Entry__new`, matching the name emitted by the
+// monomorphizer for the specialized impl method.
+func (l *Lowerer) specializedStaticName(retType typetable.TypeId, baseName, methodName string) string {
+	rt := l.Types.Get(retType)
+	if rt.Name != baseName || len(rt.TypeArgs) == 0 {
+		return ""
+	}
+	if rt.Kind != typetable.KindStruct && rt.Kind != typetable.KindEnum {
+		return ""
+	}
+	parts := make([]string, 0, len(rt.TypeArgs))
+	for _, ta := range rt.TypeArgs {
+		parts = append(parts, l.Types.Get(ta).Name)
+	}
+	return "Fuse_" + baseName + "__" + strings.Join(parts, "_") + "__" + methodName
+}
+
+// lowerPtrNull emits a null pointer constant for `Ptr.null()`. Ptr is a
+// compiler-builtin type constructor (not a user-declared struct) so the
+// general static-method path cannot route to a stdlib body — and there
+// is no stdlib body to route to. The emitter's constValue will see a
+// bare `0` and cast it via the receiving local's pointer type.
+func (l *Lowerer) lowerPtrNull(dest mir.LocalId, ty typetable.TypeId) mir.LocalId {
+	l.b.EmitConst(dest, ty, "0")
 	return dest
 }
 

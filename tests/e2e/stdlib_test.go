@@ -135,6 +135,11 @@ func TestStdlibFullCompiles(t *testing.T) {
 	}
 
 	// Load core dependencies that full/ modules import.
+	// The path→module map is defined once; each sub-test parses fresh
+	// AST copies so the monomorphizer's in-place mutations on one
+	// iteration do not leak into the next (Section 5 scanner reaches
+	// struct-field types which can inject specs referencing types the
+	// next test's graph does not contain).
 	coreDeps := map[string]string{
 		"stdlib/core/option.fuse":    "core.option",
 		"stdlib/core/result.fuse":    "core.result",
@@ -145,17 +150,20 @@ func TestStdlibFullCompiles(t *testing.T) {
 		"stdlib/core/map.fuse":       "core.map",
 		"stdlib/core/hash.fuse":      "core.hash",
 	}
-	coreFiles := map[string]*ast.File{}
-	for path, modName := range coreDeps {
-		src, err := os.ReadFile(filepath.Join(root, path))
-		if err != nil {
-			continue
+	reparseCore := func() map[string]*ast.File {
+		out := map[string]*ast.File{}
+		for path, modName := range coreDeps {
+			src, err := os.ReadFile(filepath.Join(root, path))
+			if err != nil {
+				continue
+			}
+			parsed, errs := parse.Parse(filepath.Base(path), src)
+			if len(errs) > 0 {
+				continue
+			}
+			out[modName] = parsed
 		}
-		parsed, errs := parse.Parse(filepath.Base(path), src)
-		if len(errs) > 0 {
-			continue
-		}
-		coreFiles[modName] = parsed
+		return out
 	}
 
 	fullFiles := []string{
@@ -190,11 +198,8 @@ func TestStdlibFullCompiles(t *testing.T) {
 				t.Fatalf("parse: %v", errs[0])
 			}
 
-			// Build module graph with core deps + this full module.
-			files := map[string]*ast.File{}
-			for k, v := range coreFiles {
-				files[k] = v
-			}
+			// Build module graph with fresh core deps + this full module.
+			files := reparseCore()
 			files["full."+modName] = parsed
 
 			graph := resolve.BuildModuleGraph(files)
@@ -225,7 +230,11 @@ func TestStdlibExtCompiles(t *testing.T) {
 		t.Skip("project root not found")
 	}
 
-	// Load core dependencies.
+	// Load core dependencies. Re-parsed per sub-test to avoid cross-test
+	// monomorph mutations (see TestStdlibFullCompiles for the same
+	// pattern). Without this, a spec added to core.list from one ext
+	// file's graph leaks into the next and references types not in
+	// its dep set.
 	coreDeps := map[string]string{
 		"stdlib/core/option.fuse":    "core.option",
 		"stdlib/core/result.fuse":    "core.result",
@@ -236,17 +245,20 @@ func TestStdlibExtCompiles(t *testing.T) {
 		"stdlib/core/map.fuse":       "core.map",
 		"stdlib/core/hash.fuse":      "core.hash",
 	}
-	coreFiles := map[string]*ast.File{}
-	for path, modName := range coreDeps {
-		src, err := os.ReadFile(filepath.Join(root, path))
-		if err != nil {
-			continue
+	reparseCore := func() map[string]*ast.File {
+		out := map[string]*ast.File{}
+		for path, modName := range coreDeps {
+			src, err := os.ReadFile(filepath.Join(root, path))
+			if err != nil {
+				continue
+			}
+			parsed, errs := parse.Parse(filepath.Base(path), src)
+			if len(errs) > 0 {
+				continue
+			}
+			out[modName] = parsed
 		}
-		parsed, errs := parse.Parse(filepath.Base(path), src)
-		if len(errs) > 0 {
-			continue
-		}
-		coreFiles[modName] = parsed
+		return out
 	}
 
 	extFiles := []string{
@@ -277,10 +289,7 @@ func TestStdlibExtCompiles(t *testing.T) {
 				t.Fatalf("parse: %v", errs[0])
 			}
 
-			files := map[string]*ast.File{}
-			for k, v := range coreFiles {
-				files[k] = v
-			}
+			files := reparseCore()
 			files["ext."+modName] = parsed
 
 			graph := resolve.BuildModuleGraph(files)

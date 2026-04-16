@@ -86,11 +86,31 @@ func (c *Checker) checkLiteral(e *ast.LiteralExpr) typetable.TypeId {
 	case lex.FloatLit:
 		return c.inferFloatLiteral(e.Token.Literal)
 	case lex.StringLit, lex.RawStringLit:
-		return c.Types.InternStruct("core", "String", nil)
+		// The stdlib String type lives in module `core.string`. Using the
+		// bare `core` module (its pre-auto-load placeholder) would produce
+		// a distinct TypeId and break assignment to stdlib-typed fields.
+		return c.Types.InternStruct("core.string", "String", nil)
 	case lex.KwTrue, lex.KwFalse:
 		return c.Types.Bool
 	case lex.KwNone:
-		return c.Types.Unknown // needs context to determine Option[T]
+		// Option[T] is ambiguous without context. Prefer the current
+		// expected type (set by checkReturn) so `return None;` in a
+		// function returning `Option[Entry]` types as Option[Entry]
+		// rather than Unknown. Without this the MIR EnumInit is typed
+		// as Unknown and codegen falls back to `(int){...}`.
+		if c.currentExpected != typetable.InvalidTypeId {
+			ce := c.Types.Get(c.currentExpected)
+			if ce.Kind == typetable.KindEnum && ce.Name == "Option" {
+				return c.currentExpected
+			}
+		}
+		if c.currentReturn != typetable.InvalidTypeId {
+			re := c.Types.Get(c.currentReturn)
+			if re.Kind == typetable.KindEnum && re.Name == "Option" {
+				return c.currentReturn
+			}
+		}
+		return c.Types.Unknown
 	default:
 		return c.Types.Unknown
 	}
@@ -161,12 +181,29 @@ func (c *Checker) checkIdent(e *ast.IdentExpr) typetable.TypeId {
 	return c.Types.Unknown
 }
 
+// symbolType resolves a symbol to a TypeId. Function and extern-fn symbols
+// yield their registered function type; struct and enum symbols yield the
+// nominal type TypeId itself so that patterns like `String.new()` work as
+// static method calls (fe.Expr is an identifier that names a type, not a
+// value). Without the nominal TypeId the receiver is Unknown and
+// lookupMethod cannot find the method.
+
 func (c *Checker) symbolType(sym *resolve.Symbol) typetable.TypeId {
 	// Look up function type from the registered signatures.
 	modStr := sym.Module.String()
 	key := modStr + "." + sym.Name
 	if fty, ok := c.funcTypes[key]; ok {
 		return fty
+	}
+	// Struct and enum symbols: return the nominal TypeId so static method
+	// calls (`TypeName.method()`) can route through lookupMethod. Without
+	// this, the receiver evaluates to Unknown and the lowerer emits
+	// `Fuse_Unknown__method`.
+	switch sym.Kind {
+	case resolve.SymStruct:
+		return c.Types.InternStruct(modStr, sym.Name, nil)
+	case resolve.SymEnum:
+		return c.Types.InternEnum(modStr, sym.Name, nil)
 	}
 	return c.Types.Unknown
 }
@@ -291,22 +328,66 @@ func (c *Checker) checkCall(e *ast.CallExpr) typetable.TypeId {
 	// If callee is a field access, try method lookup.
 	if fe, ok := e.Callee.(*ast.FieldExpr); ok {
 		recvType := c.checkExpr(fe.Expr)
-		return c.lookupMethod(recvType, fe.Name, e.Span)
+		ret := c.lookupMethod(recvType, fe.Name, e.Span)
+		return c.promoteToExpected(ret)
 	}
 
 	return c.Types.Unknown
 }
 
+// promoteToExpected upgrades a call's return type when the surrounding
+// context expects a specialization of the same nominal type. Static
+// methods on generic types (`List.new()`, `Map.new()`) return whichever
+// specialization's signature registered first under `TypeName.method`;
+// that is not necessarily the spec the caller wants. Using the
+// caller's expected type aligns return-TypeArgs so isAssignableTo
+// passes and emit sees the right spec name downstream.
+func (c *Checker) promoteToExpected(ty typetable.TypeId) typetable.TypeId {
+	if c.currentExpected == typetable.InvalidTypeId {
+		return ty
+	}
+	te := c.Types.Get(ty)
+	ee := c.Types.Get(c.currentExpected)
+	if te.Kind != ee.Kind || te.Name != ee.Name || te.Module != ee.Module {
+		return ty
+	}
+	if te.Kind != typetable.KindStruct && te.Kind != typetable.KindEnum {
+		return ty
+	}
+	// Only upgrade when the expected side is strictly more specific.
+	if len(ee.TypeArgs) == 0 {
+		return ty
+	}
+	return c.currentExpected
+}
+
 // checkVariantConstructor checks if a call is to an enum variant constructor.
 // Returns the concrete enum TypeId if so, or InvalidTypeId if not a variant call.
 func (c *Checker) checkVariantConstructor(name string, e *ast.CallExpr) typetable.TypeId {
-	// Look up the symbol to see if it's an enum variant.
+	// Look up the symbol to see if it's an enum variant. Fall through to
+	// a graph-wide search because variant names (Some, None, Ok, Err) are
+	// not imported into every module that uses them — monomorphized
+	// specializations placed in a defining module may still reference
+	// variants declared elsewhere (core.option etc.).
 	var sym *resolve.Symbol
 	if c.localScope != nil {
 		sym = c.localScope.Lookup(name)
 	}
 	if sym == nil && c.currentModule != nil {
 		sym = c.currentModule.Symbols.Lookup(name)
+	}
+	if (sym == nil || sym.Kind != resolve.SymEnumVariant) && c.Graph != nil {
+		for _, key := range c.Graph.Order {
+			mod := c.Graph.Modules[key]
+			if mod == nil || mod.Symbols == nil {
+				continue
+			}
+			s := mod.Symbols.LookupLocal(name)
+			if s != nil && s.Kind == resolve.SymEnumVariant {
+				sym = s
+				break
+			}
+		}
 	}
 	if sym == nil || sym.Kind != resolve.SymEnumVariant {
 		return typetable.InvalidTypeId
@@ -348,10 +429,13 @@ func (c *Checker) checkVariantConstructor(name string, e *ast.CallExpr) typetabl
 		}
 	}
 
-	modStr := ""
-	if c.currentModule != nil {
-		modStr = c.currentModule.Path.String()
-	}
+	// Canonicalize the enum's nominal module — `sym.Module` is the module
+	// where the variant (and therefore the enum) was declared, not the
+	// currently-checked module. Using currentModule here would intern
+	// `Result` under `core.bool` when `Ok(())` appears inside a Bool
+	// Printable impl, causing the assignability check to fail even though
+	// both sides textually match `Result` (L021-style module mismatch).
+	modStr := sym.Module.String()
 
 	// Determine concrete type args from the constructor arguments.
 	var typeArgs []typetable.TypeId
@@ -460,6 +544,24 @@ func (c *Checker) checkField(e *ast.FieldExpr) typetable.TypeId {
 		for _, f := range fields {
 			if f.Name == e.Name {
 				return f.Type
+			}
+		}
+	}
+	// Generic specialization: structFields is populated on the base
+	// (nil TypeArgs) template, but the field access happens on a
+	// specialization like `List[Entry]`. Substitute the specialization's
+	// TypeArgs into the base field type so the access types as the
+	// concrete element type rather than Unknown (task 3 cascade).
+	if te.Kind == typetable.KindStruct && len(te.TypeArgs) > 0 {
+		base := c.Types.BaseOf(recvType)
+		if base != typetable.InvalidTypeId {
+			_, subs := c.Types.SubstituteFields(base, te.TypeArgs)
+			if baseFields, ok := c.structFields[base]; ok {
+				for i, f := range baseFields {
+					if f.Name == e.Name && i < len(subs) {
+						return subs[i]
+					}
+				}
 			}
 		}
 	}
@@ -691,7 +793,10 @@ func (c *Checker) findBreakType(block *ast.BlockExpr) typetable.TypeId {
 
 func (c *Checker) checkReturn(e *ast.ReturnExpr) typetable.TypeId {
 	if e.Value != nil {
+		prev := c.currentExpected
+		c.currentExpected = c.currentReturn
 		valTy := c.checkExpr(e.Value)
+		c.currentExpected = prev
 		if !c.isAssignableTo(valTy, c.currentReturn) {
 			c.errorf(e.Span, "return type mismatch: got %s, expected %s",
 				c.Types.Get(valTy).Name, c.Types.Get(c.currentReturn).Name)
@@ -730,10 +835,29 @@ func (c *Checker) checkStructLit(e *ast.StructLitExpr) typetable.TypeId {
 	// List in user module `foo` must still intern under `core.list` when
 	// the user's `List` is the auto-loaded stdlib type (L021 fix).
 	if modStr, _, ok := c.resolveTypeName(e.Name); ok {
+		// `List { ... }` inside a spec like `fn new() -> List[Entry]`
+		// should type as `List[Entry]`, not the base `List`. Without
+		// this the MIR local ends up typed as the generic template
+		// and emit.fnHasGenericParam filters the whole function out.
+		if exp := c.expectedType(); exp != typetable.InvalidTypeId {
+			ee := c.Types.Get(exp)
+			if (ee.Kind == typetable.KindStruct || ee.Kind == typetable.KindEnum) &&
+				ee.Name == e.Name && ee.Module == modStr && len(ee.TypeArgs) > 0 {
+				return exp
+			}
+		}
 		return c.Types.InternStruct(modStr, e.Name, nil)
 	}
 	c.errorf(e.Span, "unknown struct '%s'", e.Name)
 	return c.Types.Unknown
+}
+
+// expectedType returns the current context's expected type or
+// InvalidTypeId when none is known. Updated by checkReturn /
+// checkAssign / container initialization before descending into
+// sub-expressions. Narrow: only StructLitExpr consumes it so far.
+func (c *Checker) expectedType() typetable.TypeId {
+	return c.currentExpected
 }
 
 // unifyExprType upgrades an expression's type when the expected type is more

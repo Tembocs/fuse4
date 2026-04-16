@@ -74,6 +74,7 @@ type Checker struct {
 	currentReturn        typetable.TypeId
 	currentImplTarget    typetable.TypeId // set during impl body checking
 	currentGenericParams map[string]typetable.TypeId // generic param name → KindGenericParam TypeId for the enclosing decl
+	currentExpected      typetable.TypeId // expected type for a descending sub-expression (see checkStructLit)
 	localScope           *resolve.Scope
 	inUnsafe             bool
 }
@@ -446,7 +447,7 @@ func (c *Checker) registerSpecializedImplMethods() {
 }
 
 func (c *Checker) registerBuiltinFunctions() {
-	strTy := c.Types.InternStruct("core", "String", nil)
+	strTy := c.Types.InternStruct("core.string", "String", nil)
 	// println(s: String) -> ()
 	printlnTy := c.Types.InternFunc([]typetable.TypeId{strTy}, c.Types.Unit)
 	c.funcTypes["println"] = printlnTy

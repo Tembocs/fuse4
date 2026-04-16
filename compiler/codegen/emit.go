@@ -44,6 +44,18 @@ func (e *Emitter) Emit(functions []*mir.Function) string {
 	e.writeln("typedef void* FuseFunc;")
 	e.writeln("")
 
+	// Dead-code elimination: if the translation unit contains a `main`,
+	// restrict emission (Phase 2/3) to the call-graph rooted there.
+	// Type collection (Phase 1) still runs over every function so
+	// user-visible stdlib type definitions are available even if no body
+	// is emitted — keeps `sizeof` and struct-literal layout correct.
+	// Without main we emit everything; that preserves bootstrap and
+	// library-mode behaviour where the consumer links the entry point.
+	toEmit := functions
+	if reach := e.reachableFromMain(functions); reach != nil {
+		toEmit = filterReachable(functions, reach)
+	}
+
 	// Phase 1: collect and emit all composite type definitions before functions.
 	for _, fn := range functions {
 		e.collectTypes(fn)
@@ -51,17 +63,124 @@ func (e *Emitter) Emit(functions []*mir.Function) string {
 	e.writeln("")
 
 	// Phase 2: emit function forward declarations.
-	for _, fn := range functions {
+	for _, fn := range toEmit {
 		e.emitFnForwardDecl(fn)
 	}
 	e.writeln("")
 
 	// Phase 3: emit function bodies.
-	for _, fn := range functions {
+	for _, fn := range toEmit {
 		e.emitFunction(fn)
 	}
 
 	return e.out.String()
+}
+
+// reachableFromMain builds the call graph rooted at `main` and returns
+// the set of reachable function names. Returns nil if no `main` exists
+// in the input (library-mode or bootstrap: emit everything).
+//
+// A callee is discovered by finding an `InstrConst` whose value looks
+// like a mangled function name and whose destination local is used as
+// the `Callee` of a later `InstrCall` in the same function. Lifted
+// closure functions that are passed around as function pointers are
+// identified by the same const-name pattern — any named function
+// referenced as a value is treated as reachable.
+func (e *Emitter) reachableFromMain(functions []*mir.Function) map[string]bool {
+	hasMain := false
+	for _, fn := range functions {
+		if fn.Name == "main" {
+			hasMain = true
+			break
+		}
+	}
+	if !hasMain {
+		return nil
+	}
+	byName := make(map[string]*mir.Function, len(functions))
+	for _, fn := range functions {
+		byName[fn.Name] = fn
+	}
+	reach := map[string]bool{"main": true}
+	queue := []string{"main"}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		fn, ok := byName[cur]
+		if !ok {
+			continue
+		}
+		for _, callee := range e.directCallees(fn) {
+			name := strings.TrimPrefix(callee, "Fuse_")
+			if _, ok := byName[name]; !ok {
+				continue // extern runtime or builtin — nothing local to emit
+			}
+			if reach[name] {
+				continue
+			}
+			reach[name] = true
+			queue = append(queue, name)
+		}
+	}
+	return reach
+}
+
+// directCallees returns the set of mangled callee names statically
+// referenced by a function's const-then-call pairs. Indirect calls
+// through arbitrary local values are not tracked — closures already get
+// their callee name via `InstrConst` of the lifted function name.
+func (e *Emitter) directCallees(fn *mir.Function) []string {
+	constNames := map[mir.LocalId]string{}
+	var out []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	for _, blk := range fn.Blocks {
+		for i := range blk.Instrs {
+			ins := &blk.Instrs[i]
+			switch ins.Kind {
+			case mir.InstrConst:
+				if isFuncRef(ins.Value) {
+					constNames[ins.Dest] = ins.Value
+					add(ins.Value)
+				}
+			case mir.InstrCall:
+				if name, ok := constNames[ins.Callee]; ok {
+					add(name)
+				}
+			case mir.InstrDrop:
+				// Drop destructors are emitted directly via `dropFnName`
+				// with no InstrConst/Call pair; record them explicitly.
+				if e.DropTypes[ins.Type] {
+					add(dropFnName(e.Types, ins.Type))
+				}
+			}
+		}
+	}
+	// Scope-exit drops on named locals also emit destructors (see the
+	// TermReturn path in emitTerminator). Add them so DCE keeps the
+	// destructor's body reachable.
+	for _, l := range fn.Locals[len(fn.Params):] {
+		if e.DropTypes[l.Type] && l.Name != "" {
+			add(dropFnName(e.Types, l.Type))
+		}
+	}
+	return out
+}
+
+func filterReachable(functions []*mir.Function, reach map[string]bool) []*mir.Function {
+	out := functions[:0:0]
+	for _, fn := range functions {
+		if reach[fn.Name] {
+			out = append(out, fn)
+		}
+	}
+	return out
 }
 
 // --- type collection and emission (Contract 5: emit before use) ---
@@ -230,6 +349,14 @@ func (e *Emitter) emitTypeDefIfNeeded(id typetable.TypeId) {
 		// Channel is a pointer to a runtime channel struct.
 		e.writef("typedef struct { void* _impl; /* Chan<%s> */ } %s;", elemC, name)
 		e.writeln("")
+	case typetable.KindRef, typetable.KindMutRef, typetable.KindPtr:
+		// A `ref T` / `mutref T` / `Ptr[T]` is a plain C pointer; the ref
+		// type itself has no typedef but the element type still needs one.
+		// Without this recursion, a parameter like `ref Option[I32]` on a
+		// specialization fails to pull `Option[I32]` into collectTypes and
+		// the emitted function signature references an undeclared struct.
+		e.emitted[id] = true
+		e.emitTypeDefIfNeeded(te.Elem)
 	default:
 		e.emitted[id] = true
 	}

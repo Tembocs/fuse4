@@ -17,12 +17,13 @@ import (
 
 // e2eTest defines a single end-to-end test case.
 type e2eTest struct {
-	Name       string
-	Source     string            // Fuse source code (single module "main")
+	Name         string
+	Source       string            // Fuse source code (single module "main")
 	ExtraModules map[string]string // optional additional modules
-	WantExit   int               // expected exit code
-	WantStdout string            // expected stdout (substring match)
-	WantError  bool              // true if compilation should fail
+	WantExit     int               // expected exit code
+	WantStdout   string            // expected stdout (substring match)
+	WantError    bool              // true if compilation should fail
+	UsesStdlib   bool              // when true, the driver auto-loads stdlib; default is hermetic (no stdlib)
 }
 
 var e2eTests = []e2eTest{
@@ -750,6 +751,40 @@ fn main() -> I32 { return 0; }`,
 		WantError: true,
 	},
 
+	// ===== Section 1 proof programs (auto-load stdlib) =====
+	// These prove the driver loads stdlib without any explicit import
+	// and that user modules may shadow stdlib modules.
+	{
+		Name: "stdlib_1b_i_println_auto_load",
+		Source: `fn main() -> I32 {
+	println("hello");
+	return 0;
+}`,
+		WantExit:   0,
+		WantStdout: "hello",
+		UsesStdlib: true,
+	},
+	{
+		Name: "stdlib_1b_ii_user_shadows_core_option",
+		// User provides a module at the dotted path "core.option"; the
+		// driver must prefer the user version over the stdlib copy.
+		// Verification: the user Option carries a dummy variant that
+		// would not exist in the stdlib Option, and it still works.
+		ExtraModules: map[string]string{
+			"core.option": `pub enum Option[T] { Some(T), None, UserOnly }
+fn main_check() -> I32 { return 7; }`,
+		},
+		Source: `fn main() -> I32 {
+	let x = Some(42);
+	match x {
+		Some(v) => return v,
+		None => return 0,
+	}
+}`,
+		WantExit:   42,
+		UsesStdlib: true,
+	},
+
 	// ===== Section 5 proof programs (STDLIB_INTEGRATION_TASKS.md) =====
 	// These assume auto-loaded stdlib (Section 1) is in place.
 	// Per L014 they are committed in a red state first; failure
@@ -764,7 +799,8 @@ fn main() -> I32 {
 	}
 	return 0;
 }`,
-		WantExit: 42,
+		WantExit:   42,
+		UsesStdlib: true,
 	},
 	{
 		Name: "stdlib_5b_struct_with_list",
@@ -782,7 +818,8 @@ fn main() -> I32 {
 		None => return 0,
 	}
 }`,
-		WantExit: 42,
+		WantExit:   42,
+		UsesStdlib: true,
 	},
 	{
 		Name: "stdlib_5c_result_string_question",
@@ -802,7 +839,8 @@ fn main() -> I32 {
 		Err(_) => return 99,
 	}
 }`,
-		WantExit: 42,
+		WantExit:   42,
+		UsesStdlib: true,
 	},
 	{
 		Name: "stdlib_5d_string_methods",
@@ -819,7 +857,8 @@ fn main() -> I32 {
 	}
 	return 0;
 }`,
-		WantExit: 42,
+		WantExit:   42,
+		UsesStdlib: true,
 	},
 	{
 		Name: "stdlib_5e_map_string_i32",
@@ -835,7 +874,8 @@ fn main() -> I32 {
 		None => return 0,
 	}
 }`,
-		WantExit: 42,
+		WantExit:   42,
+		UsesStdlib: true,
 	},
 
 	// ===== Compilation Errors =====
@@ -887,12 +927,18 @@ func runE2ETest(t *testing.T, tc e2eTest, rtLib string) {
 	}
 	outPath := filepath.Join(tmpDir, exeName)
 
-	// Compile.
-	result := driver.Build(driver.BuildOptions{
-		Sources:    sources,
-		OutputPath: outPath,
-		RuntimeLib: rtLib,
-	})
+	// Compile. Default is hermetic (no stdlib). Tests that explicitly
+	// exercise stdlib integration set UsesStdlib to pull in core/full/ext.
+	buildOpts := driver.BuildOptions{
+		Sources:        sources,
+		OutputPath:     outPath,
+		RuntimeLib:     rtLib,
+		SkipAutoStdlib: !tc.UsesStdlib,
+	}
+	if tc.UsesStdlib {
+		buildOpts.StdlibRoot = findStdlibRoot()
+	}
+	result := driver.Build(buildOpts)
 
 	// Check for expected compilation errors.
 	if tc.WantError {
@@ -984,4 +1030,26 @@ func findRuntimeLib() string {
 
 func hasCompileErrors(result *driver.BuildResult) bool {
 	return len(result.Errors) > 0
+}
+
+// findStdlibRoot returns an absolute path to the stdlib directory by
+// walking up from the test CWD. Empty string if not found.
+func findStdlibRoot() string {
+	if env := os.Getenv("FUSE_STDLIB_ROOT"); env != "" {
+		return env
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	dir := cwd
+	for i := 0; i < 5; i++ {
+		candidate := filepath.Join(dir, "stdlib")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			abs, _ := filepath.Abs(candidate)
+			return abs
+		}
+		dir = filepath.Dir(dir)
+	}
+	return ""
 }

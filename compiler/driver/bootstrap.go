@@ -50,7 +50,10 @@ func BootstrapStage1ToStage2(stage2Dir, stdlibRoot string) *BootstrapResult {
 	}
 
 	// Run the stage1 compiler pipeline (check only — no native compile).
-	buildResult := Build(BuildOptions{Sources: allSources})
+	// SkipAutoStdlib: stdlib sources were loaded explicitly above, so the
+	// driver's auto-load would duplicate work (and the user-wins merge
+	// would produce the same graph anyway).
+	buildResult := Build(BuildOptions{Sources: allSources, SkipAutoStdlib: true})
 	result.Errors = append(result.Errors, buildResult.Errors...)
 	result.CSource = buildResult.CSource
 	result.CSourceHash = hashString(buildResult.CSource)

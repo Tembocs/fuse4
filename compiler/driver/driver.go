@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Tembocs/fuse4/compiler/ast"
 	"github.com/Tembocs/fuse4/compiler/cc"
@@ -24,12 +25,14 @@ import (
 
 // BuildOptions configures a compilation.
 type BuildOptions struct {
-	Sources    map[string][]byte // module path → source bytes
-	OutputPath string            // output executable path
-	RuntimeLib string            // path to libfuse_rt.a
-	Backend    string            // "c11" (default) or "native"
-	Optimize   bool
-	Debug      bool
+	Sources        map[string][]byte // module path → source bytes
+	OutputPath     string            // output executable path
+	RuntimeLib     string            // path to libfuse_rt.a
+	StdlibRoot     string            // explicit stdlib root; empty means auto-discover via StdlibRoot()
+	Backend        string            // "c11" (default) or "native"
+	Optimize       bool
+	Debug          bool
+	SkipAutoStdlib bool              // when true, the driver does not auto-load stdlib sources
 }
 
 // BuildResult holds the outcome of a compilation.
@@ -43,12 +46,76 @@ type BuildResult struct {
 func Build(opts BuildOptions) *BuildResult {
 	result := &BuildResult{}
 
+	// Phase 0: Auto-load stdlib sources unless explicitly skipped.
+	// User sources take precedence: a user-provided module of the same
+	// path as a stdlib module shadows the stdlib copy (see language-guide
+	// §11.4 "Module loading").
+	if !opts.SkipAutoStdlib {
+		root := opts.StdlibRoot
+		if root == "" {
+			root = StdlibRoot()
+		}
+		if root == "" {
+			result.Errors = append(result.Errors, diagnostics.Errorf(
+				diagnostics.Span{}, "standard library not found: set FUSE_STDLIB_ROOT or pass BuildOptions.StdlibRoot"))
+			return result
+		}
+		stdlibSources, err := LoadStdlib(root)
+		if err != nil {
+			result.Errors = append(result.Errors, diagnostics.Errorf(
+				diagnostics.Span{}, "standard library not found at %s: %s", root, err))
+			return result
+		}
+		if len(stdlibSources) == 0 {
+			result.Errors = append(result.Errors, diagnostics.Errorf(
+				diagnostics.Span{}, "standard library not found at %s: no .fuse files", root))
+			return result
+		}
+		if opts.Sources == nil {
+			opts.Sources = make(map[string][]byte)
+		}
+		for modPath, src := range stdlibSources {
+			if _, userProvided := opts.Sources[modPath]; userProvided {
+				continue // user-wins: shadow the stdlib copy
+			}
+			opts.Sources[modPath] = src
+		}
+	}
+
 	// Phase 1: Parse all modules.
 	parsed := make(map[string]*ast.File)
 	for modPath, src := range opts.Sources {
 		f, errs := parse.Parse(modPath+".fuse", src)
 		result.Errors = append(result.Errors, errs...)
 		parsed[modPath] = f
+	}
+	if hasErrors(result.Errors) {
+		return result
+	}
+
+	// Phase 1.5: Enforce stdlib tier direction (Rule 5.4: ext → full → core).
+	for modPath, f := range parsed {
+		tier, isStdlib := stdlibTier(modPath)
+		if !isStdlib {
+			continue
+		}
+		for _, item := range f.Items {
+			imp, ok := item.(*ast.ImportDecl)
+			if !ok {
+				continue
+			}
+			target := strings.Join(imp.Path, ".")
+			targetTier, targetIsStdlib := stdlibTier(target)
+			if !targetIsStdlib {
+				continue
+			}
+			if !tierAllows(tier, targetTier) {
+				result.Errors = append(result.Errors, diagnostics.Errorf(
+					imp.Span,
+					"module '%s' (%s) may not import '%s' (%s): stdlib tier direction is ext → full → core",
+					modPath, tier, target, targetTier))
+			}
+		}
 	}
 	if hasErrors(result.Errors) {
 		return result
@@ -303,4 +370,33 @@ func hasErrors(errs []diagnostics.Diagnostic) bool {
 		}
 	}
 	return false
+}
+
+// stdlibTier returns the stdlib tier ("core", "full", "ext") of a module
+// path, and whether the module belongs to the stdlib at all.
+func stdlibTier(modPath string) (string, bool) {
+	switch {
+	case strings.HasPrefix(modPath, "core."), modPath == "core":
+		return "core", true
+	case strings.HasPrefix(modPath, "full."), modPath == "full":
+		return "full", true
+	case strings.HasPrefix(modPath, "ext."), modPath == "ext":
+		return "ext", true
+	}
+	return "", false
+}
+
+// tierAllows reports whether a module in tier `src` is allowed to import
+// from tier `dst`. Direction is `ext → full → core`; imports only flow
+// toward `core`, never away from it (Rule 5.4).
+func tierAllows(src, dst string) bool {
+	switch src {
+	case "core":
+		return dst == "core"
+	case "full":
+		return dst == "core" || dst == "full"
+	case "ext":
+		return dst == "core" || dst == "full" || dst == "ext"
+	}
+	return true
 }

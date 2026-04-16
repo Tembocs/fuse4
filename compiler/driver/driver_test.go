@@ -5,12 +5,18 @@ import (
 	"testing"
 )
 
+// minimalBuild returns BuildOptions set up for driver unit tests that
+// exercise minimal Fuse fragments. Auto-load stdlib is disabled so
+// these tests stay hermetic and do not pull the whole stdlib through
+// the pipeline for every sub-test.
+func minimalBuild(sources map[string][]byte) BuildOptions {
+	return BuildOptions{Sources: sources, SkipAutoStdlib: true}
+}
+
 func TestBuildEmptyModule(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte(""),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte(""),
+	}))
 	if hasErrors(result.Errors) {
 		for _, e := range result.Errors {
 			t.Logf("error: %s", e)
@@ -19,11 +25,9 @@ func TestBuildEmptyModule(t *testing.T) {
 }
 
 func TestBuildSimpleFunction(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn main() { }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn main() { }"),
+	}))
 	for _, e := range result.Errors {
 		t.Errorf("error: %s", e)
 	}
@@ -36,12 +40,10 @@ func TestBuildSimpleFunction(t *testing.T) {
 }
 
 func TestBuildMultipleModules(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"core.math": []byte("pub fn add(a: I32, b: I32) -> I32 { a + b }"),
-			"main":      []byte("import core.math; fn main() { }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"core.math": []byte("pub fn add(a: I32, b: I32) -> I32 { a + b }"),
+		"main":      []byte("import core.math; fn main() { }"),
+	}))
 	for _, e := range result.Errors {
 		t.Errorf("error: %s", e)
 	}
@@ -51,11 +53,9 @@ func TestBuildMultipleModules(t *testing.T) {
 }
 
 func TestBuildParseFails(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn {{{ bad syntax"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn {{{ bad syntax"),
+	}))
 	if !hasErrors(result.Errors) {
 		t.Error("expected parse errors")
 	}
@@ -63,12 +63,9 @@ func TestBuildParseFails(t *testing.T) {
 
 func TestBuildWithOutput(t *testing.T) {
 	// Only test C source generation, not actual compile+link (may not have runtime built).
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn hello() { let x = 42; }"),
-		},
-		// No OutputPath — skips compile+link.
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn hello() { let x = 42; }"),
+	}))
 	for _, e := range result.Errors {
 		t.Errorf("error: %s", e)
 	}
@@ -78,11 +75,9 @@ func TestBuildWithOutput(t *testing.T) {
 }
 
 func TestCSourceContainsFunction(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn test_func() { let x = 1; }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn test_func() { let x = 1; }"),
+	}))
 	for _, e := range result.Errors {
 		t.Errorf("error: %s", e)
 	}
@@ -98,11 +93,9 @@ func TestRuntimeLibDiscovery(t *testing.T) {
 }
 
 func TestBuildResultHasCSource(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn main() -> I32 { return 0; }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn main() -> I32 { return 0; }"),
+	}))
 	if result.CSource == "" {
 		t.Error("expected generated C source even without OutputPath")
 	}
@@ -112,11 +105,9 @@ func TestBuildResultHasCSource(t *testing.T) {
 }
 
 func TestBuildFunctionWithLet(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn main() { let x = 42; }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn main() { let x = 42; }"),
+	}))
 	for _, e := range result.Errors {
 		t.Errorf("error: %s", e)
 	}
@@ -126,11 +117,9 @@ func TestBuildFunctionWithLet(t *testing.T) {
 }
 
 func TestBuildFunctionWithReturn(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn get() -> I32 { return 1; }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn get() -> I32 { return 1; }"),
+	}))
 	for _, e := range result.Errors {
 		t.Errorf("error: %s", e)
 	}
@@ -140,11 +129,9 @@ func TestBuildFunctionWithReturn(t *testing.T) {
 }
 
 func TestBuildFunctionWithArithmetic(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn add() { let x = 1 + 2; }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn add() { let x = 1 + 2; }"),
+	}))
 	for _, e := range result.Errors {
 		t.Errorf("error: %s", e)
 	}
@@ -154,11 +141,9 @@ func TestBuildFunctionWithArithmetic(t *testing.T) {
 }
 
 func TestBuildFunctionWithIfElse(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn test() { if true { let x = 1; } }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn test() { if true { let x = 1; } }"),
+	}))
 	for _, e := range result.Errors {
 		t.Errorf("error: %s", e)
 	}
@@ -170,11 +155,9 @@ func TestBuildFunctionWithIfElse(t *testing.T) {
 }
 
 func TestBuildFunctionWithCall(t *testing.T) {
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("fn foo() { } fn main() { foo(); }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("fn foo() { } fn main() { foo(); }"),
+	}))
 	for _, e := range result.Errors {
 		t.Errorf("error: %s", e)
 	}
@@ -185,11 +168,9 @@ func TestBuildFunctionWithCall(t *testing.T) {
 
 func TestBuildDiagnosticsAreCollected(t *testing.T) {
 	// An import referencing a nonexistent module should produce a resolve error.
-	result := Build(BuildOptions{
-		Sources: map[string][]byte{
-			"main": []byte("import nonexistent.module; fn main() { }"),
-		},
-	})
+	result := Build(minimalBuild(map[string][]byte{
+		"main": []byte("import nonexistent.module; fn main() { }"),
+	}))
 	if !hasErrors(result.Errors) {
 		t.Error("expected resolve errors for nonexistent import")
 	}

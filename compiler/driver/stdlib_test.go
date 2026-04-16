@@ -81,7 +81,9 @@ func TestStdlibParsesWithoutErrors(t *testing.T) {
 	}
 
 	// Feed all stdlib sources through the compiler pipeline (check only).
-	result := Build(BuildOptions{Sources: sources})
+	// SkipAutoStdlib: we're already feeding the complete stdlib set, so
+	// auto-load would just re-do the same work.
+	result := Build(BuildOptions{Sources: sources, SkipAutoStdlib: true})
 	// We accept some errors from simplified stdlib bodies, but parse errors
 	// indicate a real problem.
 	for _, e := range result.Errors {

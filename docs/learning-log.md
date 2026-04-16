@@ -1953,3 +1953,176 @@ This entry is verified when all of the following pass:
 4. `fuse build test.fuse` compiles a program calling stdlib methods (`.push`, `.get`, `.len`)
 5. All existing e2e tests still pass
 6. `python test_all.py` — all 7 steps pass
+
+### L022 — Section 5 retrospective: the three blockers that should have been pinned down earlier
+
+Date: 2026-04-16
+Discovered during: W18-P11-T05 (Section 5 proof programs)
+
+**Reproducer**:
+After Section 5 of STDLIB_INTEGRATION_TASKS.md, three of the seven
+stdlib-integration proofs (stdlib_5b, 5c, 5d, 5e) remained red with
+failure signatures shifted out of Section 3/4 territory into three
+distinct body-level codegen gaps:
+
+1. `stdlib_5b_struct_with_list`:
+   - `Ptr.null()` lowers to the untyped constant `0`, assigned to a
+     typed pointer field → C `-Wint-conversion`.
+   - `fuse_rt_mem_realloc` returns `Ptr[U8]` but `self.data: Ptr[Entry]`
+     takes the result with no cast → pointer-type mismatch.
+   - MIR liveness leaves locals from one branch undeclared after a
+     match/if join in `List[T].push`.
+
+2. `stdlib_5c_result_string_question`:
+   - `Result[I32, String]` with `Ok(I32)` vs `Err(String)` collapses
+     to `struct { int _tag; int32_t _f0; }`. The Err payload cannot
+     fit in the chosen slot type; assignment fails in C.
+
+3. `stdlib_5d_string_methods`:
+   - String methods like `contains`/`starts_with` reference MIR
+     locals (`_l42`, `_l46`) whose declarations were elided across
+     branch joins — same liveness-pass bug as 5b's push.
+
+5e inherits 5b's Ptr issues plus 5c's multi-payload Option[V] return.
+
+**What was tried first**:
+Section 5 tackled the compiler-level blockers common to all proofs
+(auto-load scoping, static-method calls, emit-Ref recursion, DCE,
+expected-type propagation, monomorph signature scanning, graph-wide
+symbol fallback, None-literal lowering, isAssignableTo relaxation).
+3 of 7 proofs went green (5a, 1b-i, 1b-ii). The remaining four are
+blocked on the three body-level gaps above.
+
+**Root cause** (three, each with an earlier-wave origin):
+
+1. **Pointer semantics were never pinned to a C representation
+   contract.** Wave 09 ("C11 backend and contracts") defined
+   pointer-category separation but did not specify:
+   - how `Ptr.null()` yields a typed null,
+   - when the emitter inserts explicit casts between
+     `Ptr[T]` and `Ptr[U]`,
+   - which side of a `Ptr[U8] → Ptr[T]` assignment performs the
+     cast.
+   Without that contract, stdlib authors wrote `self.data =
+   fuse_rt_mem_realloc(self.data, n);` and checked it against a
+   permissive checker that silently accepted the mismatch.
+
+2. **Tagged enums with heterogeneous variant payloads have no
+   C-level union representation.** Wave 09 picked a sequential-
+   slot layout (`_tag`, `_f0`, `_f1`, ...) optimised for enums
+   whose variants share a payload shape (Option[T] is fine:
+   only Some has a payload). Multi-payload enums like
+   `Result[T, E]` where T ≠ E require a C `union` keyed by
+   `_tag`, with match-arm extraction picking the right union
+   member. That representation decision was never made.
+
+3. **Liveness across branch joins is incomplete.** Wave 06
+   ("Ownership and liveness") produced a liveness pass that
+   works on linear control flow and on the shapes exercised by
+   the then-available tests. Locals born in one arm of an
+   `if`/`match` and used after the join were not covered by a
+   property test with stdlib-scale match bodies, so the gap
+   survived into Wave 18.
+
+**The deeper pattern** — and the hard lesson:
+
+The three gaps above were not visible while stdlib bodies were
+stubs. The pre-L021 permissive checker accepted any type
+assignment, and stub bodies did not exercise real control flow.
+L016's pre-Wave-18 audit could not enumerate them because
+structural tests passed; there was no behavioural symptom.
+
+Earlier rigor at Waves 06 and 09 would have prevented each
+specific blocker. But the root cause is broader: **the compiler
+ran permissive for too long and stdlib was built on that
+foundation.** Once L021 went strict in Wave 18, the accumulated
+informal assumptions all surfaced together.
+
+L013/L014 already called out the "silent stub" and
+"self-verifying plan" antipatterns. L021 added the "stdlib is
+the compiler's stress test" corollary. L022 extends this one
+step further:
+
+> Backend representation contracts (pointer semantics, enum
+> layout, liveness invariants across all control-flow shapes)
+> must be pinned in the language guide **before** the module
+> that depends on them is written, not after integration
+> surfaces the gap.
+
+**Spec gap**:
+The language guide's "Implementation contracts" section under
+§11 defines some backend contracts (pointer-category separation,
+unit erasure, monomorphization completeness) but does not define:
+
+1. Ptr.null typing and `Ptr[T] ↔ Ptr[U]` cast emission rules.
+2. Tagged-enum C representation for variants with different
+   payload types (sequential slots vs. union).
+3. Liveness invariants across branch joins, with concrete
+   property-test corpora.
+
+These three missing contracts are what Section 6+ of the
+stdlib-integration work has to fill in.
+
+**Plan gap**:
+The wave sequence put real stdlib body implementation (Wave 12
+core, Wave 13 hosted, then the Wave 18 P11 integration pass)
+after the backend and liveness waves. That is the correct
+dependency order. What was missing is an explicit checkpoint
+between Waves 09 and 12: a stdlib-shaped proof corpus that
+exercises the backend and liveness contracts with the same
+shapes core/full stdlib code will use, **before** writing the
+stdlib bodies. L016 became that checkpoint retroactively but
+only for frontend features, not backend representation.
+
+**Fix**:
+No code change in this entry; this is retrospective. Concrete
+follow-ups:
+
+1. Extend the language guide with the three missing contracts
+   (Ptr null + cast rules, enum union layout, liveness
+   branch-join invariants). Under §11 "Implementation
+   contracts".
+2. Add a new pre-integration wave (or phase of the current
+   Wave 18) that exercises each backend contract with a
+   stdlib-shaped property corpus.
+3. Section 6 of STDLIB_INTEGRATION_TASKS.md already schedules
+   regression coverage for the L021 band-aid spiral; extend it
+   with regressions for the three L022 contracts so a future
+   permissive-checker regression cannot mask them again.
+
+**Cascading effects**:
+- Proofs 5b/5c/5d/5e stay red until the three contracts are
+  specified and the codegen is updated accordingly.
+- Any future stdlib body that allocates heap memory, uses a
+  heterogeneous tagged enum, or branches before its result is
+  used will hit the same family of issues; the contracts above
+  cover them preemptively.
+
+**Architectural lesson**:
+A backend that silently accepts informal assumptions from the
+frontend will accumulate those assumptions until integration
+forces them visible — usually as a cluster of unrelated-looking
+errors that are actually one missing contract. **Specify the
+backend representation contracts in the language guide at the
+same time the backend is built, not when the stdlib starts
+using them.** Verify each contract with a property-test corpus
+shaped like real stdlib usage, not toy programs.
+
+The rule is the same rule as Rule 2.4 ("implementation
+contracts are mandatory") but extended from "backend-critical
+semantics" to specifically include backend *representation*
+choices — pointer null typing, enum layout, cast insertion,
+liveness invariants. Those are invisible at the frontend level
+and only surface when stdlib-scale code lands on them.
+
+**Verification**:
+This entry is verified when:
+1. The language guide's §11 Implementation contracts section
+   lists the three new contracts (Ptr null/cast, enum union
+   layout, liveness branch-join).
+2. Each contract has at least one property-test regression.
+3. Proofs 5b, 5c, 5d, 5e in `tests/e2e/e2e_test.go` flip green
+   through root-cause fixes (not band-aids).
+4. A pre-integration checkpoint phase exists in the
+   implementation plan between backend contracts and stdlib
+   body implementation.

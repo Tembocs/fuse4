@@ -1817,3 +1817,139 @@ explicitly.
 **Verification**:
 This entry is verified when WAVE19_TASKS.md section 18 task 18i passes:
 `fuse build` produces working binaries with no Go, no C, no gcc.
+
+### L021 — The compiler cannot compile real programs that use the stdlib
+
+Date: 2026-04-16
+Discovered during: Fuel (package manager) implementation attempt
+
+**Reproducer**:
+Any Fuse program that uses a core type as a struct field fails to compile:
+```
+struct Manifest { name: String, deps: List[Dependency] }
+fn main() -> I32 { return 0; }
+```
+Running `fuse build manifest.fuse` produces C code with incomplete type
+definitions because `String` and `List[Dependency]` have no C struct
+bodies in the generated output.
+
+**What was tried first**:
+1. Pre-emitting hardcoded C struct definitions for `String` at the top
+   of the generated C output. This fixed `String` but not `List[T]`,
+   `Result[T, E]`, `Option[T]`, or any other generic type.
+2. A `coreTypeLookup` table in the checker to resolve `String`, `List`,
+   `Map`, `Result`, `Option` to their canonical modules without explicit
+   imports. This fixed type identity but not type definition emission.
+3. Auto-loading all stdlib sources into the build. This failed because
+   generic function originals (e.g., `List[T].push`, `Option[T].unwrap_or`)
+   leaked unresolved type parameter `T` into the C output as
+   `Fuse_core_list__T` — an undefined C type.
+4. Filtering generic functions in the emitter with `fnHasGenericTypes`.
+   This partially worked but the generic struct type definitions were
+   still emitted with `T` in their field types because `collectTypes`
+   processed them before the function filter ran.
+5. Adding `hasGenericParam` checks to `emitTypeDefIfNeeded`. This stopped
+   the base generic types from being emitted, but the substitution for
+   specializations (`List[Dependency]` looking up `List[T]`'s field
+   layout and replacing `T` → `Dependency`) failed due to module identity
+   mismatch: the specialized type was registered under the user's module
+   (`ext.argparse`) instead of the defining module (`core.list`), so
+   `FindBaseType` could not find the base type.
+
+All five approaches were band-aids applied in sequence. Each fixed one
+symptom and revealed the next. The total damage: 18 commits of
+increasingly tangled workarounds, all reverted.
+
+**Root cause**:
+Three interacting bugs, not one:
+
+1. **No stdlib auto-loading.** `fuse build` only compiles the files the
+   user passes. Unlike every other compiled language (Go, Rust, C with
+   libc), there is no automatic inclusion of standard library type
+   definitions. User code that references `String`, `List`, `Result`,
+   etc. as struct fields produces C code with incomplete type definitions
+   because the stdlib modules that define those types were never compiled.
+
+2. **Generic templates emitted as C code.** When stdlib IS loaded, the
+   codegen emits type definitions and function signatures for generic
+   originals (`List[T]`, `Option[T]`) that contain unresolved
+   `KindGenericParam` type parameters. These produce invalid C
+   (`Fuse_core_list__T`). The emitter has no filter to distinguish
+   generic templates (which should never produce C output) from
+   concrete monomorphized copies (which should).
+
+3. **Module identity mismatch for generic instantiations.** When user
+   code in module `foo` references `List[MyType]`, the checker creates
+   `InternStruct("foo", "List", [MyType])` — registering the
+   instantiation under `foo` instead of `core.list` where `List` is
+   defined. When the codegen later tries to look up the base type's
+   field layout for substitution, it searches for `InternStruct("foo",
+   "List", nil)` which does not exist. The base type is under
+   `core.list`. Without module identity canonicalization, the codegen
+   cannot find the field layout to substitute.
+
+**Spec gap**:
+The language guide does not specify how modules are loaded. There is no
+statement that the compiler must auto-load the standard library, nor any
+specification of how generic type instantiations relate to their
+defining modules in the compiled output.
+
+**Plan gap**:
+The implementation plan treats "stdlib compiles" (Wave 18 exit criterion)
+as each file passing parse → resolve → check in isolation. It never
+requires a user program to compile WITH the stdlib. The plan schedules
+stdlib body implementation (Wave 19 sections 4–7) before proving that
+user programs can use those bodies. This is backwards: the compiler's
+ability to compile real programs should have been proven before writing
+real stdlib bodies, CLI features, packaging, or any downstream tooling.
+
+The plan also does not schedule "auto-load stdlib" as an explicit task.
+It was assumed to work and was never tested.
+
+**Fix**:
+See STDLIB_INTEGRATION_TASKS.md for the complete task breakdown. The fix
+requires three changes:
+
+1. Auto-load stdlib sources in `driver.Build()` when user code does not
+   already include them.
+2. Filter generic templates in the codegen: skip any type definition or
+   function whose types reference `KindGenericParam`.
+3. Canonicalize module identity for generic instantiations: when the
+   checker resolves `List[MyType]`, look up `List` via the symbol table
+   to find its defining module (`core.list`), and register the
+   instantiation under that module.
+
+**Cascading effects**:
+- All trait method implementations (Gap 2 from the failed attempt) will
+  still collide in C because the codegen emits `Fuse_eq` for every
+  type's `eq` method. The method name qualification fix (prepending the
+  target type) is also needed.
+- Numeric literal suffixes (`0usize`, `42u8`) in the generated C are
+  invalid and must be stripped.
+- Extern function names (`fuse_rt_*`) get prefixed with `Fuse_` and
+  must be preserved as-is.
+- Double-pointer emission (`String**` instead of `String*`) when
+  borrowing an already-borrowed value must be avoided.
+
+**Architectural lesson**:
+A compiler that cannot compile programs using its own standard library
+is not ready for any downstream work. The ability to compile a real
+multi-module program with struct fields of core types (`String`,
+`List[T]`, `Result[T, E]`) is a prerequisite for stdlib body
+implementation, CLI tooling, packaging, and any application-level work.
+This should be the FIRST thing proven after the basic pipeline works,
+not discovered 18 commits into building a package manager.
+
+Auto-loading of the standard library is not an optimization or a
+convenience feature. It is a fundamental compiler requirement. Every
+compiled language does it. Not scheduling it as an explicit task was
+a planning failure.
+
+**Verification**:
+This entry is verified when all of the following pass:
+1. `fuse build test.fuse` compiles a program with `struct Foo { name: String }`
+2. `fuse build test.fuse` compiles a program with `struct Bar { items: List[I32] }`
+3. `fuse build test.fuse` compiles a program using `Result[(), String]` return types
+4. `fuse build test.fuse` compiles a program calling stdlib methods (`.push`, `.get`, `.len`)
+5. All existing e2e tests still pass
+6. `python test_all.py` — all 7 steps pass

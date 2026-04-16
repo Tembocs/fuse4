@@ -1510,6 +1510,63 @@ Every module in `stdlib/full/` must compile and have its public API tested.
   DoD: the e2e test suite including all proof programs from Waves 17 and
   18 passes in the CI matrix (Linux, macOS, Windows).
 
+### Phase 11: Stdlib Integration [W18-P11-STDLIB-INTEGRATION]
+
+Added after learning-log L021. The compiler passed Wave 18 structural
+checks but cannot compile user programs that use core stdlib types
+(`String`, `List[T]`, `Result[T, E]`, `Map[K, V]`) as struct fields or
+method receivers. Three root causes documented in L021: no stdlib
+auto-loading, generic templates leaking into C output, module identity
+mismatch for generic instantiations. Full task breakdown lives in
+`STDLIB_INTEGRATION_TASKS.md`.
+
+- Task 01: Auto-load stdlib in the driver [W18-P11-T01-AUTO-LOAD-STDLIB]
+  DoD: `fuse build foo.fuse` compiles a program with
+  `struct Foo { name: String }` without any explicit import of
+  `core.string`. If the stdlib root cannot be located the compiler
+  emits a diagnostic and stops (Rule 6.9).
+
+- Task 02: Filter generic templates in codegen
+  [W18-P11-T02-FILTER-GENERIC-TEMPLATES]
+  DoD: generated C for any program contains no identifier matching
+  `Fuse_*__T` where `T` is a generic parameter name. Only monomorphized
+  specializations reach codegen.
+
+- Task 03: Canonicalize module identity for generic instantiations
+  [W18-P11-T03-CANONICAL-MODULE-IDENTITY]
+  DoD: `List[MyType]` written in user module `foo` is interned under
+  `core.list`, not `foo`. `BaseOf(List[MyType])` finds the template.
+  Unknown type names emit a diagnostic rather than synthesizing a
+  phantom struct in the current module (Rule 3.9, Rule 6.9).
+
+- Task 04: Secondary codegen fixes surfaced by L021
+  [W18-P11-T04-SECONDARY-CODEGEN-FIXES]
+  DoD: four small root-cause fixes land with regressions —
+  (a) trait/impl method names qualified by target type,
+  (b) extern names starting with `fuse_rt_` preserved verbatim,
+  (c) numeric literal suffixes stripped in emitted C,
+  (d) borrow-of-borrow emits copy in the lowerer, not `&` in codegen.
+
+- Task 05: Section 5 proof programs pass
+  [W18-P11-T05-STDLIB-INTEGRATION-PROOFS]
+  DoD: the five e2e proof programs in `tests/e2e/e2e_test.go`
+  (`stdlib_5a_struct_with_string_fields`, `stdlib_5b_struct_with_list`,
+  `stdlib_5c_result_string_question`, `stdlib_5d_string_methods`,
+  `stdlib_5e_map_string_i32`) compile, link, run, and exit with the
+  expected codes. These were committed red first per Rule 6.8 / L014.
+
+- Task 06: Regression coverage for the 18-commit band-aid spiral
+  [W18-P11-T06-BANDAID-REGRESSIONS]
+  DoD: each of the five failed approaches named in L021 ("What was
+  tried first") has a regression test that would fail if the band-aid
+  pattern returned — specifically the hardcoded String pre-emission,
+  the `coreTypeLookup` emitter table, generic-param leakage in
+  struct typedefs, generic-param leakage in function signatures, and
+  the canonical-core-module fallback in `BaseOf`.
+
+Exit criterion for Wave 18 is updated: tasks 01–06 of Phase 11 must
+pass alongside Phases 01–10 before Wave 19 (Retirement) can begin.
+
 ## Wave 19: Retirement of Go and C from the Compiler Path
 
 Goal: complete the transition from bootstrap implementation languages to a Fuse

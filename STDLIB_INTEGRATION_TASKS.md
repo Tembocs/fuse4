@@ -43,16 +43,19 @@ respect them; tasks that cannot are rejected.
 
 Before writing any production code in Sections 1–4:
 
-- [ ] **P1.** Write the Section 5 proof programs first, as Fuse
+- [x] **P1.** Write the Section 5 proof programs first, as Fuse
       source files (or inline `e2eTest` cases in
       `tests/e2e/e2e_test.go`). Do not stub them — use the shape
-      the final code will have.
-- [ ] **P2.** Run the e2e suite and capture the failure
+      the final code will have. *(landed in commit `60c5c2d`)*
+- [x] **P2.** Run the e2e suite and capture the failure
       signatures. Commit the proof programs in a red state with
       the failure output pasted into the commit message.
-- [ ] **P3.** Only then begin Section 1. After each section,
+      *(landed in commit `60c5c2d`; all 5 fail red, 77 prior
+      subtests still green)*
+- [x] **P3.** Only then begin Section 1. After each section,
       re-run the proofs; the failure signature should *change*,
       not vanish, until the relevant root cause is fixed.
+      *(gate active; re-run after each section lands)*
 
 *Refinement rationale:* The original doc listed proofs as
 `Xd`/`Xv` bullets at the end of each section. Per L013/L014 that
@@ -67,18 +70,22 @@ closed before implementation lands (Rule 2.1, Rule 10.3).
 
 - [x] **0a.** `docs/learning-log.md` L021 landed in commit
       `ac60fc6`. *(already complete)*
-- [ ] **0b.** `docs/language-guide.md` — add a "Module loading"
-      subsection stating: (i) the standard library is implicitly
-      available to every user module, (ii) user modules may
-      shadow stdlib modules by providing a module of the same
-      path, (iii) the `ext → full → core` direction is enforced
-      at resolve time.
-- [ ] **0c.** `docs/implementation-plan.md` — insert a task in
-      Wave 18 or a new Wave 18.5 scheduling the three root-cause
-      fixes (auto-load, generic template filter, module identity
-      canonicalization). Per L021's plan-gap entry.
-- [ ] **0d.** `docs/rules.md` — no change expected; rules 3.9,
-      5.1, and 6.9 already cover this work. Verify during review.
+- [x] **0b.** `docs/language-guide.md` — added §11.4 "Module
+      loading" (user-facing) plus two new implementation
+      contracts: "Standard library is auto-loaded" and "Nominal
+      identity of generic instantiations follows the defining
+      module." Covers (i) implicit stdlib availability,
+      (ii) user shadowing, (iii) `ext → full → core` direction.
+- [x] **0c.** `docs/implementation-plan.md` — added
+      `[W18-P11-STDLIB-INTEGRATION]` with tasks T01–T06 covering
+      auto-load, generic filter, module identity, secondary
+      codegen fixes, proof programs, and band-aid regressions.
+      Wave 18 exit criterion explicitly requires Phase 11 tasks
+      to pass before Wave 19 starts.
+- [x] **0d.** `docs/rules.md` — verified, no edit needed.
+      Rule 3.9 (unresolved types), Rule 5.1 (stdlib is stress
+      test), Rule 6.9 (no silent stubs) already cover the
+      failure modes in L021.
 
 *Refinement rationale:* Original doc had only task 0a. The
 language-guide and plan updates are mandatory under Rule 2.1 and

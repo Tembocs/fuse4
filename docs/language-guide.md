@@ -724,6 +724,29 @@ import util.math;
 The module system may re-export symbols and selectively expose imported items
 according to the language surface.
 
+### 11.4 Module loading
+
+The standard library is implicitly available to every user module. Ordinary
+Fuse code may refer to `String`, `List[T]`, `Option[T]`, `Result[T, E]`,
+`Map[K, V]`, and other core types without any explicit import. Hosted
+modules under `full/` and extended modules under `ext/` remain explicit —
+a user that wants `io`, `chan`, or `net` must import them.
+
+A user module may shadow a stdlib module by providing a module of the same
+dotted path (for example, a user file mapped to module `core.string`). In
+that case the user module wins and the stdlib copy is not loaded. Shadowing
+is intended for testing and alternate implementations; ordinary programs
+should not shadow stdlib modules.
+
+The dependency direction across the stdlib tiers is one-way:
+
+```
+ext → full → core
+```
+
+`core` must not depend on `full` or `ext`, and `full` must not depend on
+`ext`. This direction is enforced at resolve time, not just by convention.
+
 ### Implementation contracts
 
 #### Module-first import resolution
@@ -737,6 +760,24 @@ inside the preceding module path.
 Stdlib modules must be type-checked in the same pass as user modules. Any pass
 that skips stdlib bodies while still lowering or codegening them violates the
 frontend-backend contract.
+
+#### Standard library is auto-loaded
+
+Before parsing user sources, the driver loads the standard library
+(`stdlib/core/` at minimum; `stdlib/full/` and `stdlib/ext/` on demand)
+into the compilation unit. User sources merge on top: if a user source
+declares a module whose path matches a stdlib module, the user version
+takes precedence and the stdlib copy is omitted. If the stdlib root
+cannot be located, the compiler emits a diagnostic and stops — there is
+no silent fallback that compiles user code without stdlib types.
+
+#### Nominal identity of generic instantiations follows the defining module
+
+When user code in module `foo` writes `List[MyType]`, the specialization is
+registered under the module where `List` is defined (`core.list`), not under
+`foo`. Type identity for generic instantiations is `(defining_module, name,
+type_args)`. A symbol-table miss during type resolution is a diagnostic, not
+a silent fallback to the current module.
 
 ## 12. Concurrency
 

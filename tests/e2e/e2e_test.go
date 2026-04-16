@@ -750,6 +750,94 @@ fn main() -> I32 { return 0; }`,
 		WantError: true,
 	},
 
+	// ===== Section 5 proof programs (STDLIB_INTEGRATION_TASKS.md) =====
+	// These assume auto-loaded stdlib (Section 1) is in place.
+	// Per L014 they are committed in a red state first; failure
+	// signatures change as Sections 1–4 land.
+	{
+		Name: "stdlib_5a_struct_with_string_fields",
+		Source: `struct Config { name: String, version: String }
+fn main() -> I32 {
+	let c = Config { name: "fuse", version: "0.1" };
+	if c.name.len() == 4usize {
+		return 42;
+	}
+	return 0;
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "stdlib_5b_struct_with_list",
+		Source: `struct Entry { id: I32 }
+struct Registry { entries: List[Entry] }
+fn main() -> I32 {
+	var r = Registry { entries: List.new() };
+	r.entries.push(Entry { id: 40 });
+	r.entries.push(Entry { id: 2 });
+	match r.entries.get(0usize) {
+		Some(a) => match r.entries.get(1usize) {
+			Some(b) => return a.id + b.id,
+			None => return 0,
+		},
+		None => return 0,
+	}
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "stdlib_5c_result_string_question",
+		Source: `fn parse_num(s: String) -> Result[I32, String] {
+	if s.len() == 0usize {
+		return Err("empty");
+	}
+	return Ok(42);
+}
+fn chained() -> Result[I32, String] {
+	let n = parse_num("hello")?;
+	return Ok(n);
+}
+fn main() -> I32 {
+	match chained() {
+		Ok(v) => return v,
+		Err(_) => return 99,
+	}
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "stdlib_5d_string_methods",
+		Source: `fn main() -> I32 {
+	let s = "hello world";
+	let needle = "world";
+	let prefix = "hello";
+	if s.contains(ref needle) {
+		if s.starts_with(ref prefix) {
+			if s.byte_at(0usize) == 104u8 {
+				return 42;
+			}
+		}
+	}
+	return 0;
+}`,
+		WantExit: 42,
+	},
+	{
+		Name: "stdlib_5e_map_string_i32",
+		Source: `fn main() -> I32 {
+	var m: Map[String, I32] = Map.new();
+	m.insert("alpha", 40);
+	m.insert("beta", 2);
+	match m.get(ref "alpha") {
+		Some(va) => match m.get(ref "beta") {
+			Some(vb) => return va + vb,
+			None => return 0,
+		},
+		None => return 0,
+	}
+}`,
+		WantExit: 42,
+	},
+
 	// ===== Compilation Errors =====
 	{
 		Name:      "parse_error",
